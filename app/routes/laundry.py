@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -14,8 +14,10 @@ from app.schemas.laundry import (
 
 router = APIRouter(
     prefix="/laundries",
-    tags=["Laundries"]
+    tags=["Laundries"],
 )
+
+
 @router.post("/", response_model=LaundryResponse)
 def create_laundry(
     laundry_data: LaundryCreate,
@@ -32,14 +34,16 @@ def create_laundry_branch(
 ):
     pass
 
+
 @router.get("/{laundry_id}", response_model=LaundryResponse)
 def get_laundry(laundry_id: int, db: Session = Depends(get_db)):
     pass
 
+
 @router.get("/{laundry_id}/branches", response_model=list[BranchResponse])
 def get_laundry_branches(
     laundry_id: int,
-    pagination: Annotated[Pagination, Query()],
+    pagination: Annotated[Pagination, Depends()],
     db: Session = Depends(get_db),
 ):
     pass
@@ -47,7 +51,7 @@ def get_laundry_branches(
 
 @router.get("/")
 def get_nearby_laundries(
-    pagination: Annotated[Pagination, Query()],
+    pagination: Annotated[Pagination, Depends()],
     db: Session = Depends(get_db),
 ):
     pass

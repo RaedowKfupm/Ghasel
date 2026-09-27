@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 
+
 class CustomerProfile(Base):
     __tablename__ = 'Customers'
     id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"), primary_key=True, index=True)

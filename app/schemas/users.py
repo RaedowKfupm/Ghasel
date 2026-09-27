@@ -8,6 +8,7 @@ class GetUser(BaseModel):
     
 
 
+
 class UpdateUser(BaseModel):
     name: str | None = None
     email: EmailStr | None = None

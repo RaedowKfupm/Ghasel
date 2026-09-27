@@ -1,9 +1,11 @@
 from fastapi import FastAPI
+
+import app.models  # noqa: F401
 from app.routes import auth, laundry, orders, users
 
 app = FastAPI(
     title="Ghasel API",
-    version="1.0.0"
+    version="1.0.0",
 )
 app.include_router(auth.router)
 app.include_router(orders.router)

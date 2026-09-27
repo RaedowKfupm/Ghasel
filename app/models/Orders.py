@@ -2,6 +2,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
+
 class Orders(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
