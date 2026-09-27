@@ -1,10 +1,8 @@
 from datetime import datetime, timedelta, timezone
-
 import jwt
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
-
 from app.core.config import settings
 from app.models.Users import User
 
@@ -23,9 +21,10 @@ def hash_password(plain_password: str) -> str:
 def authenticate_user(email: str, password: str, db: Session):
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        return False
+        verify_password("DummyPassword", hash_password("DummyPassword"))  # Dummy verification to mitigate timing attacks
+        return None
     if not verify_password(password, user.password_hash):
-        return False
+        return None
     return user
 
 
