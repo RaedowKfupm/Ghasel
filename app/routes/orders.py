@@ -3,7 +3,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import ManagerOrder, require_roles
+from app.core.enums import UserRole
 from app.db.session import get_db
+from app.models.Users import User
 from app.schemas.laundry import Pagination
 from app.schemas.order import OrderCreate, OrderResponse, OrderStatusUpdate
 
@@ -18,7 +21,12 @@ router = APIRouter(
     response_model=OrderResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
+#user
+def create_order(
+    order_data: OrderCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.CUSTOMER)),
+):
     pass
 
 
@@ -34,11 +42,12 @@ def list_orders(
 ):
     pass
 
-
+#laundryManager
 @router.patch("/{order_id}/status", status_code=status.HTTP_204_NO_CONTENT)
 def update_order_status(
     order_id: int,
     status_data: OrderStatusUpdate,
+    order: ManagerOrder,
     db: Session = Depends(get_db),
 ):
     return None

@@ -3,15 +3,22 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, insert
 from app.db.session import get_db
 from app.core.dependencies import current_user
+from app.core.enums import UserRole
 from app.core.security import create_access_token, authenticate_user, hash_password, decode_access_token
 from app.schemas.auth import ResponseUser, UserLogin, UserRegister
 from app.models.Users import User
 
 
 def register_user_service(info: UserRegister, db: Session):
+    if info.role in (UserRole.ADMIN, UserRole.MANAGER):
+            raise HTTPException(
+                status_code=403,
+                detail="Admin and manager accounts cannot be registered publicly",
+            )
     q = db.scalar(select(User).where(User.email== info.email))
     if q: 
         raise HTTPException(status_code=400, detail="Email already registered")
+    
     info.password = hash_password(info.password)
     user_data = info.model_dump()
     db.execute(insert(User).values(password_hash=user_data.pop("password"), **user_data))

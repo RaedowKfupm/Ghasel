@@ -1,10 +1,11 @@
 from pydantic import BaseModel, EmailStr
+from app.core.enums import UserRole
 
 class UserRegister(BaseModel):
     name: str
     email: EmailStr
     password: str
-    role: str
+    role: UserRole
 
 class UserLogin(BaseModel):
     password: str
@@ -15,4 +16,4 @@ class ResponseUser(BaseModel):
     token_type: str
     name: str
     email: EmailStr
-    role: str
+    role: UserRole

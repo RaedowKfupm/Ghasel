@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
+from app.core.enums import OrderStatus
 
 
 class OrderCreate(BaseModel):
@@ -9,7 +10,7 @@ class OrderCreate(BaseModel):
 
 
 class OrderStatusUpdate(BaseModel):
-	status: str
+	status: OrderStatus
 
 
 class OrderResponse(BaseModel):
@@ -17,7 +18,7 @@ class OrderResponse(BaseModel):
 	customer_id: int
 	branch_id: int
 	details: str
-	status: str
+	status: OrderStatus
 	address: str
 	created_at: datetime
 	accepted_at: datetime | None = None
