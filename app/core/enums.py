@@ -14,3 +14,9 @@ class OrderStatus(str, Enum):
     DELIVERING = "delivering"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+
+
+class LaundryRequestStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"

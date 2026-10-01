@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from app.core.enums import LaundryRequestStatus
 
 
 class Pagination(BaseModel):
@@ -9,12 +10,22 @@ class Pagination(BaseModel):
 
 
 class LaundryCreate(BaseModel):
-	pass
+	company_name: str
+
+
+class LaundryRequestResponse(BaseModel):
+	id: int
+	owner_id: int
+	company_name: str
+	status: LaundryRequestStatus
+	created_at: datetime
+
+	model_config = ConfigDict(from_attributes=True)
 
 
 class LaundryResponse(BaseModel):
 	id: int
-	owner_id: int
+	company_name: str | None = None
 	created_at: datetime
 
 	model_config = ConfigDict(from_attributes=True)
@@ -23,8 +34,23 @@ class LaundryResponse(BaseModel):
 class BranchCreate(BaseModel):
 	branch_name: str
 	branch_address: str
-	manager_id: int
 	phone: str
+
+
+class ManagerCreate(BaseModel):
+	name: str
+	email: EmailStr
+	password: str
+	branch_id: int
+
+
+class ManagerResponse(BaseModel):
+	id: int
+	name: str
+	email: EmailStr
+	laundry_branch_id: int
+
+	model_config = ConfigDict(from_attributes=True)
 
 
 class BranchResponse(BaseModel):
@@ -32,7 +58,7 @@ class BranchResponse(BaseModel):
 	laundry_id: int
 	branch_name: str | None = None
 	branch_address: str
-	manager_id: int
+	operators: list[ManagerResponse] = Field(default_factory=list)
 	phone: str
 	created_at: datetime
 

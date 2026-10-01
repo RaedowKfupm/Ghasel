@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.enums import UserRole
 from app.core.security import decode_access_token, oauth2_scheme
 from app.db.session import get_db
-from app.models.LaundryProfiles import LaundryBranch, LaundryProfile
+from app.models.LaundryProfiles import LaundryProfile
 from app.models.Orders import Orders
 from app.models.Users import User
 
@@ -68,10 +68,10 @@ def get_manager_order(
 ) -> Orders:
     order = (
         db.query(Orders)
-        .join(LaundryBranch, Orders.branch_id == LaundryBranch.id)
         .filter(
             Orders.id == order_id,
-            LaundryBranch.manager_id == user.id,
+            Orders.branch_id == user.laundry_branch_id,
+            Orders.is_deleted.is_(False),
         )
         .first()
     )
@@ -95,7 +95,7 @@ def get_owned_laundry(
         db.query(LaundryProfile)
         .filter(
             LaundryProfile.id == laundry_id,
-            LaundryProfile.owner_id == user.id,
+            LaundryProfile.id == user.laundry_id,
         )
         .first()
     )

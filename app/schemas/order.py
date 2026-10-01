@@ -19,7 +19,6 @@ class OrderResponse(BaseModel):
 	branch_id: int
 	details: str
 	status: OrderStatus
-	address: str
 	created_at: datetime
 	accepted_at: datetime | None = None
 	completed_at: datetime | None = None
