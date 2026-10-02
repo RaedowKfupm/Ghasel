@@ -71,7 +71,6 @@ def get_manager_order(
         .filter(
             Orders.id == order_id,
             Orders.branch_id == user.laundry_branch_id,
-            Orders.is_deleted.is_(False),
         )
         .first()
     )

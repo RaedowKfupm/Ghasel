@@ -10,7 +10,6 @@ class UserRole(str, Enum):
 class OrderStatus(str, Enum):
     PENDING = "pending"
     ACCEPTED = "accepted"
-    READY = "ready"
     DELIVERING = "delivering"
     COMPLETED = "completed"
     CANCELLED = "cancelled"

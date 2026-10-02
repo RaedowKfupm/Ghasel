@@ -8,6 +8,7 @@ from app.core.enums import UserRole
 from app.db.session import get_db
 from app.models.Users import User
 from app.services.orders import (
+    create_customer_order,
     get_customer_order,
     list_customer_orders,
     set_manager_order_status,
@@ -32,7 +33,7 @@ def create_order(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(UserRole.CUSTOMER)),
 ):
-    pass
+    return create_customer_order(order_data, user, db)
 
 
 @router.get("/{order_id}", response_model=OrderResponse, status_code=status.HTTP_200_OK)

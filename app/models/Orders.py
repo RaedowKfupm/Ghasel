@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.core.enums import OrderStatus
@@ -14,7 +14,5 @@ class Orders(Base):
     created_at = Column(DateTime, nullable=False)
     accepted_at = Column(DateTime)
     completed_at = Column(DateTime)
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    deleted_at = Column(DateTime, nullable=True)
     customer = relationship("User", back_populates="orders", uselist=False)
     branch = relationship("LaundryBranch", back_populates="orders", uselist=False)

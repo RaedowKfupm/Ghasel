@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import ManagerOrder, OwnedLaundry, require_roles
-from app.core.enums import OrderStatus, UserRole
+from app.core.enums import UserRole
 from app.db.session import get_db
 from app.models.Users import User
 from app.services.laundry import (
@@ -16,7 +16,6 @@ from app.services.laundry import (
     list_laundry_branches,
     list_laundry_requests,
 )
-from app.services.orders import set_manager_order_status
 from app.schemas.laundry import (
     BranchCreate,
     BranchResponse,
@@ -82,16 +81,6 @@ def register_manager(
     db: Session = Depends(get_db),
 ):
     return create_laundry_manager(laundry, manager_data, db)
-
-
-@router.post("/acceptorder", status_code=204)
-def accept_order(
-    order_id: int,
-    order: ManagerOrder,
-    db: Session = Depends(get_db),
-):
-    set_manager_order_status(order, OrderStatus.ACCEPTED, db)
-
 
 
 @router.get("/{laundry_id}", response_model=LaundryResponse)
