@@ -8,6 +8,7 @@ class UserRole(str, Enum):
 
 
 class OrderStatus(str, Enum):
+    OPEN = "open"
     PENDING = "pending"
     ACCEPTED = "accepted"
     DELIVERING = "delivering"

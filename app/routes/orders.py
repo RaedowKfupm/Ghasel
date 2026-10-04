@@ -3,15 +3,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import ManagerOrder, require_roles
+from app.core.dependencies import require_roles
 from app.core.enums import UserRole
 from app.db.session import get_db
 from app.models.Users import User
 from app.services.orders import (
     create_customer_order,
+    dispatch_order_status_transition,
     get_customer_order,
-    list_customer_orders,
-    set_manager_order_status,
+    list_orders_for_user,
 )
 from app.schemas.laundry import Pagination
 from app.schemas.order import OrderCreate, OrderResponse, OrderStatusUpdate
@@ -49,16 +49,18 @@ def get_order(
 def list_orders(
     pagination: Annotated[Pagination, Depends()],
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.CUSTOMER)),
+    user: User = Depends(
+        require_roles(UserRole.CUSTOMER, UserRole.MANAGER, UserRole.ADMIN)
+    ),
 ):
-    return list_customer_orders(pagination, user, db)
+    return list_orders_for_user(pagination, user, db)
 
 #laundryManager
 @router.patch("/{order_id}/status", status_code=status.HTTP_204_NO_CONTENT)
 def update_order_status(
     order_id: int,
     status_data: OrderStatusUpdate,
-    order: ManagerOrder,
     db: Session = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.MANAGER)),
 ):
-    set_manager_order_status(order, status_data.status, db)
+    dispatch_order_status_transition(order_id, status_data.status, user, db)

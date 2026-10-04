@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import ManagerOrder, OwnedLaundry, require_roles
+from app.core.dependencies import OwnedLaundry, require_roles
 from app.core.enums import UserRole
 from app.db.session import get_db
 from app.models.Users import User

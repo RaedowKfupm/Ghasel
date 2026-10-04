@@ -8,7 +8,7 @@ class Orders(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
     customer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    branch_id = Column(Integer, ForeignKey("Branches.id"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("Branches.id"), nullable=True)
     details = Column(String, nullable=False)
     status = Column(Enum(OrderStatus, native_enum=False), nullable=False)
     created_at = Column(DateTime, nullable=False)

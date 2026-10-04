@@ -181,10 +181,9 @@ function renderDashboard() {
       <div class="hero">
         <span class="eyebrow">Branch operations</span>
         <h1>Keep every order moving.</h1>
-        <p>Update orders assigned to your branch through the enforced order lifecycle.</p>
-        <div class="hero-actions"><button class="btn btn-primary" onclick="showPage('orders')">Manage an order</button></div>
-      </div>
-      <div class="code-note">Your current API can update a manager-owned order by ID, but it does not yet expose a route to list all orders assigned to the manager's branch. The UI therefore uses direct order-ID management for V1.</div>`;
+        <p>Browse open orders and move your branch’s orders through the lifecycle.</p>
+        <div class="hero-actions"><button class="btn btn-primary" onclick="showPage('orders')">Manage orders</button></div>
+      </div>`;
   } else {
     content = `
       <div class="hero">
@@ -216,33 +215,31 @@ async function loadOrders() {
         ${orders.length ? `<div class="list">${orders.map(orderCard).join("")}</div>` : empty("No orders yet","Choose a laundry branch and create your first order.")}`;
     } catch (e) { root.innerHTML = errorBox(e.message); }
   } else if (role === "manager") {
-    root.innerHTML = `
-      <div class="two-col">
-        <div class="card">
-          <h3>Manage assigned order</h3>
-          <p class="muted">Enter an order ID assigned to your branch.</p>
-          <form id="managerOrderForm" class="stack">
-            <label>Order ID<input id="managerOrderId" type="number" min="1" required /></label>
-            <label>Next status
-              <select id="managerOrderStatus">
-                <option value="accepted">Accepted</option>
-                <option value="delivering">Delivering</option>
-                <option value="completed">Completed</option>
-              </select>
-            </label>
-            <button class="btn btn-primary" type="submit">Update status</button>
-          </form>
-        </div>
-        <div class="card">
-          <h3>Lifecycle</h3>
-          <p class="muted">The backend enforces the transition sequence.</p>
-          <div class="timeline">
-            <div class="timeline-step done">Pending</div><div class="timeline-step done">Accepted</div>
-            <div class="timeline-step done">Delivering</div><div class="timeline-step">Completed</div>
-          </div>
-        </div>
-      </div>`;
-    $("#managerOrderForm").addEventListener("submit", updateManagerOrder);
+    try {
+      const orders = await api("/orders/?page=1&limit=50");
+      root.innerHTML = `
+        <div class="section-head"><h2>Open and branch orders</h2><button class="btn btn-secondary" id="refreshManagerOrders">Refresh</button></div>
+        <label>Filter orders<input id="managerOrderFilter" type="search" placeholder="Order ID or details" /></label>
+        <div id="managerOrderList" class="list" style="margin-top:14px"></div>`;
+      const renderManagerOrders = () => {
+        const query = $("#managerOrderFilter").value.trim().toLowerCase();
+        const visibleOrders = orders.filter(order =>
+          String(order.id).includes(query) || order.details.toLowerCase().includes(query)
+        );
+        $("#managerOrderList").innerHTML = visibleOrders.length
+          ? visibleOrders.map(managerOrderCard).join("")
+          : empty("No matching orders", "Try another search or refresh the list.");
+      };
+      $("#managerOrderFilter").addEventListener("input", renderManagerOrders);
+      $("#refreshManagerOrders").addEventListener("click", loadOrders);
+      $("#managerOrderList").addEventListener("click", event => {
+        const button = event.target.closest("[data-order-id]");
+        if (button) updateManagerOrder(Number(button.dataset.orderId), button.dataset.nextStatus);
+      });
+      renderManagerOrders();
+    } catch (error) {
+      root.innerHTML = errorBox(error.message);
+    }
   } else {
     root.innerHTML = empty("No order view for this role","Use the navigation for your role-specific workflow.");
   }
@@ -255,12 +252,33 @@ function orderCard(o) {
     <div class="row">
       <div>
         <div class="row-start"><strong>Order #${o.id}</strong>${badge(o.status)}</div>
-        <div class="meta"><span>Branch #${o.branch_id}</span><span>${fmtDate(o.created_at)}</span></div>
+        <div class="meta"><span>${o.branch_id ? `Branch #${o.branch_id}` : "Waiting for a branch"}</span><span>${fmtDate(o.created_at)}</span></div>
       </div>
       <button class="btn btn-secondary" onclick="openOrder(${o.id})">Details</button>
     </div>
     <p style="margin:16px 0 0">${escapeHtml(o.details)}</p>
-    ${o.status !== "cancelled" ? `<div class="timeline">${statuses.map((s,i)=>`<div class="timeline-step ${i<=idx?"done":""}">${s}</div>`).join("")}</div>` : ""}
+    ${o.status === "open" ? `<p class="muted" style="margin:12px 0 0">Branch operators can see and claim this request.</p>` : `<div class="timeline">${statuses.map((s,i)=>`<div class="timeline-step ${i<=idx?"done":""}">${s}</div>`).join("")}</div>`}
+  </article>`;
+}
+
+function managerOrderCard(order) {
+  const nextStatus = {
+    open: "accepted",
+    pending: "accepted",
+    accepted: "delivering",
+    delivering: "completed",
+  }[order.status];
+  const actionLabel = {
+    accepted: "Accept order",
+    delivering: "Start delivery",
+    completed: "Complete order",
+  }[nextStatus];
+  return `<article class="order-card">
+    <div class="row"><div><div class="row-start"><strong>Order #${order.id}</strong>${badge(order.status)}</div>
+      <div class="meta"><span>${order.branch_id ? `Branch #${order.branch_id}` : "Open to branches"}</span><span>${fmtDate(order.created_at)}</span></div></div>
+      ${nextStatus ? `<button class="btn btn-primary" data-order-id="${order.id}" data-next-status="${nextStatus}">${actionLabel}</button>` : ""}
+    </div>
+    <p style="margin:16px 0 0">${escapeHtml(order.details)}</p>
   </article>`;
 }
 
@@ -279,13 +297,11 @@ async function openOrder(id) {
   } catch(e) { toast(e.message,"error"); }
 }
 
-async function updateManagerOrder(e) {
-  e.preventDefault();
-  const id = $("#managerOrderId").value;
-  const status = $("#managerOrderStatus").value;
+async function updateManagerOrder(id, status) {
   try {
     await api(`/orders/${id}/status`, { method:"PATCH", body:JSON.stringify({status}) });
     toast(`Order #${id} moved to ${status}`);
+    await loadOrders();
   } catch(e) { toast(e.message,"error"); }
 }
 
@@ -303,6 +319,7 @@ async function loadLaundry(id) {
         <div><span class="eyebrow">Laundry #${laundry.id}</span><h2>${escapeHtml(laundry.company_name || "Laundry")}</h2></div>
         <span class="badge approved">${branches.length} branch${branches.length===1?"":"es"}</span>
       </div>
+      ${state.user.role === "customer" ? `<div class="section-head"><p class="muted">Prefer an open request?</p><button class="btn btn-secondary" onclick="openCreateOrder(null, 'Open request')">Offer to branches</button></div>` : ""}
       <div class="section-head"><h2>Branches</h2></div>
       ${branches.length ? `<div class="list">${branches.map(branchCard).join("")}</div>` : empty("No branches","This laundry has no branches yet.")}`;
   } catch(e) {
@@ -325,9 +342,9 @@ function openCreateOrder(branchId, branchName) {
   openModal(`
     <div class="modal-head"><div><span class="eyebrow">New order</span><h2>${escapeHtml(branchName)}</h2></div><button class="icon-btn" onclick="closeModal()">×</button></div>
     <form id="createOrderForm" class="stack">
-      <input type="hidden" id="createOrderBranch" value="${branchId}" />
+      <input type="hidden" id="createOrderBranch" value="${branchId ?? ""}" />
       <label>Laundry details<textarea id="createOrderDetails" required placeholder="Example: 3 shirts, 2 trousers. Wash and iron."></textarea></label>
-      <div class="code-note">V1 sends the selected branch ID and order details to your existing <strong>POST /orders/</strong> endpoint.</div>
+      <div class="code-note">${branchId ? "This order will go directly to the selected branch." : "All branch operators can see and claim this open request in V1; nearby matching comes later."}</div>
       <button class="btn btn-primary" type="submit">Create order</button>
     </form>`);
   $("#createOrderForm").addEventListener("submit", createOrder);
@@ -337,7 +354,7 @@ async function createOrder(e) {
   e.preventDefault();
   try {
     await api("/orders/", { method:"POST", body:JSON.stringify({
-      branch_id:Number($("#createOrderBranch").value),
+      branch_id:$("#createOrderBranch").value ? Number($("#createOrderBranch").value) : null,
       details:$("#createOrderDetails").value.trim()
     })});
     closeModal(); toast("Order created");

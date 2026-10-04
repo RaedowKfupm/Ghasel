@@ -9,7 +9,6 @@ from app.core.enums import UserRole
 from app.core.security import decode_access_token, oauth2_scheme
 from app.db.session import get_db
 from app.models.LaundryProfiles import LaundryProfile
-from app.models.Orders import Orders
 from app.models.Users import User
 
 Token = Annotated[str, Depends(oauth2_scheme)]
@@ -59,30 +58,6 @@ def require_roles(*allowed_roles: UserRole) -> Callable:
         return user
 
     return role_checker
-
-
-def get_manager_order(
-    order_id: int,
-    user: User = Depends(require_roles(UserRole.MANAGER)),
-    db: Session = Depends(get_db),
-) -> Orders:
-    order = (
-        db.query(Orders)
-        .filter(
-            Orders.id == order_id,
-            Orders.branch_id == user.laundry_branch_id,
-        )
-        .first()
-    )
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found",
-        )
-    return order
-
-
-ManagerOrder = Annotated[Orders, Depends(get_manager_order)]
 
 
 def get_owned_laundry(
