@@ -22,7 +22,7 @@ from app.db.session import get_db
 from app.main import app
 
 
-def _test_database_url() -> URL:
+def resolve_test_database_url() -> URL:
     dev_url = make_url(settings.database_url)
     if settings.test_database_url:
         url = make_url(settings.test_database_url)
@@ -34,7 +34,7 @@ def _test_database_url() -> URL:
     return url
 
 
-def _recreate_database(url: URL) -> None:
+def recreate_database(url: URL) -> None:
     admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     with admin.connect() as connection:
         connection.execute(text(f'DROP DATABASE IF EXISTS "{url.database}" WITH (FORCE)'))
@@ -44,8 +44,8 @@ def _recreate_database(url: URL) -> None:
 
 @pytest.fixture(scope="session")
 def engine() -> Iterator[Engine]:
-    url = _test_database_url()
-    _recreate_database(url)
+    url = resolve_test_database_url()
+    recreate_database(url)
     test_engine = create_engine(url, pool_size=20)
 
     alembic_config = Config("alembic.ini")
