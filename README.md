@@ -151,6 +151,15 @@ any database whose name doesn't contain "test". It verifies:
 - [Spatial query performance](docs/performance.md): `EXPLAIN ANALYZE` method, results and caveats
 - [Frontend structure](frontend/README.md)
 
+## Version history
+
+| Version | Focus | Highlights |
+|---|---|---|
+| [**V1**](https://github.com/RaedowKfupm/Ghasel/tree/v1.0.0) (`v1.0.0`) | Initial backend | JWT authentication, role-based authorization and resource ownership, laundry company/branch modelling, order management with status transitions, open requests for competing branches, a basic web UI |
+| **V2** (`v2.0.0`) | Advanced marketplace | Concurrency-safe acceptance, PostGIS nearby discovery and service-area matching, stage tracking with recorded history, verified reviews, Alembic migrations and database constraints, a PostgreSQL-backed test suite, a rebuilt responsive frontend |
+
+The [design document](docs/design-decisions.md#engineering-evolution--tradeoffs) describes how the design evolved between versions.
+
 ## Limitations & future improvements
 
 - **Not yet deployed.** The next milestone is Docker, CI with GitHub Actions, and a public demo.
