@@ -1,5 +1,11 @@
+# Environment
 .env
+.venv/
+
+# Python artefacts
 __pycache__/
 *.py[cod]
-.venv/
-.env.example
+.pytest_cache/
+
+# Editor files
+*.code-workspace
