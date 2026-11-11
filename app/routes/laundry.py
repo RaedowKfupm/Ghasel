@@ -2,19 +2,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from app.core.dependencies import Database, OwnedLaundry, require_roles
+from app.core.dependencies import Database, OwnedLaundry, Page, require_roles
 from app.core.enums import UserRole
 from app.models.Users import User
+from app.schemas.branch import BranchCreate, BranchResponse
 from app.schemas.laundry import (
-    BranchCreate,
-    BranchResponse,
     LaundryCreate,
     LaundryRequestResponse,
     LaundryResponse,
     ManagerCreate,
     ManagerResponse,
 )
-from app.schemas.pagination import Pagination
 from app.services import laundry as laundry_service
 
 router = APIRouter(prefix="/laundries", tags=["Laundries"])
@@ -32,7 +30,7 @@ def apply_for_laundry(
 
 
 @router.get("/requests", response_model=list[LaundryRequestResponse], dependencies=admin_only)
-def list_laundry_requests(pagination: Annotated[Pagination, Depends()], db: Database):
+def list_laundry_requests(pagination: Page, db: Database):
     return laundry_service.list_laundry_requests(pagination, db)
 
 
@@ -52,7 +50,7 @@ def get_laundry(laundry_id: int, db: Database):
 
 
 @router.get("/{laundry_id}/branches", response_model=list[BranchResponse])
-def list_laundry_branches(laundry_id: int, pagination: Annotated[Pagination, Depends()], db: Database):
+def list_laundry_branches(laundry_id: int, pagination: Page, db: Database):
     return laundry_service.list_laundry_branches(laundry_id, pagination, db)
 
 
@@ -72,3 +70,8 @@ def create_laundry_branch(branch_data: BranchCreate, laundry: OwnedLaundry, db: 
 )
 def create_branch_manager(manager_data: ManagerCreate, laundry: OwnedLaundry, db: Database):
     return laundry_service.create_laundry_manager(laundry, manager_data, db)
+
+
+@router.get("/{laundry_id}/managers", response_model=list[ManagerResponse])
+def list_branch_managers(laundry: OwnedLaundry, db: Database):
+    return laundry_service.list_laundry_managers(laundry, db)

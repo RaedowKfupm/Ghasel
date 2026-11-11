@@ -1,8 +1,21 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, Enum, ForeignKey, Index, Integer, String, func, text
-from sqlalchemy.orm import relationship
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+    text,
+)
+from sqlalchemy.orm import deferred, relationship
 
 from app.core.enums import LaundryRequestStatus
 from app.db.base import Base
+from app.db.spatial import GeographyPoint, generated_point
 
 
 class LaundryProfile(Base):
@@ -18,12 +31,26 @@ class LaundryProfile(Base):
 
 class LaundryBranch(Base):
     __tablename__ = "Branches"
+    __table_args__ = (
+        CheckConstraint("latitude BETWEEN -90 AND 90", name="ck_branches_latitude"),
+        CheckConstraint("longitude BETWEEN -180 AND 180", name="ck_branches_longitude"),
+        CheckConstraint("(latitude IS NULL) = (longitude IS NULL)", name="ck_branches_coordinates_paired"),
+        CheckConstraint(
+            "service_radius_km > 0 AND service_radius_km <= 100", name="ck_branches_service_radius"
+        ),
+        Index("ix_branches_location", "location", postgresql_using="gist"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     laundry_id = Column(Integer, ForeignKey("Laundry.id", ondelete="CASCADE"), nullable=False)
     branch_name = Column(String)
     branch_address = Column(String, nullable=False)
     phone = Column(String, nullable=False)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    # Marketplace orders whose pickup point lies within this radius are offered to the branch.
+    service_radius_km = Column(Float, nullable=False, server_default="10")
+    location = deferred(Column(GeographyPoint(), generated_point("latitude", "longitude")))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     laundry = relationship("LaundryProfile", back_populates="branches", uselist=False)

@@ -6,16 +6,17 @@ the WHERE clause after the first writer commits, so only one of several racing
 requests can succeed; the others match zero rows and receive 409 Conflict.
 """
 
-from sqlalchemy import Select, or_, select, update
+from sqlalchemy import Float, Select, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import ColumnElement, func
 
 from app.core.enums import OrderStatus, UserRole
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
+from app.db.spatial import METRES_PER_KM
 from app.models.LaundryProfiles import LaundryBranch
 from app.models.Orders import Orders
 from app.models.Users import User
-from app.schemas.order import OrderCreate
+from app.schemas.order import AvailableOrderResponse, OrderCreate
 from app.schemas.pagination import Pagination
 from app.services.order_lifecycle import (
     ACTION_ONLY_TARGETS,
@@ -45,11 +46,26 @@ def _manager_branch_id(manager: User) -> int:
     return manager.laundry_branch_id
 
 
+def _branch_location(branch_id: int) -> ColumnElement:
+    return select(LaundryBranch.location).where(LaundryBranch.id == branch_id).scalar_subquery()
+
+
+def _within_service_area(branch_id: int) -> ColumnElement[bool]:
+    """The order's pickup point lies inside the branch's service radius (PostGIS, metres)."""
+    service_radius_km = (
+        select(LaundryBranch.service_radius_km).where(LaundryBranch.id == branch_id).scalar_subquery()
+    )
+    return func.ST_DWithin(Orders.pickup_location, _branch_location(branch_id), service_radius_km * METRES_PER_KM)
+
+
 def _available_to_branch(branch_id: int) -> ColumnElement[bool]:
-    """Pending orders a branch may accept: marketplace orders and direct requests to it."""
+    """Pending orders a branch may accept: direct requests to it, and nearby marketplace orders.
+
+    Branches without a location see no marketplace orders (ST_DWithin with NULL is not true).
+    """
     return (Orders.status == OrderStatus.PENDING) & or_(
-        Orders.branch_id.is_(None),
         Orders.branch_id == branch_id,
+        Orders.branch_id.is_(None) & _within_service_area(branch_id),
     )
 
 
@@ -77,9 +93,24 @@ def list_orders(pagination: Pagination, user: User, db: Session) -> list[Orders]
     return list(db.scalars(_paginate(query, pagination)))
 
 
-def list_available_orders(pagination: Pagination, manager: User, db: Session) -> list[Orders]:
-    query = _order_query().where(_available_to_branch(_manager_branch_id(manager)))
-    return list(db.scalars(_paginate(query, pagination)))
+def list_available_orders(pagination: Pagination, manager: User, db: Session) -> list[AvailableOrderResponse]:
+    """Orders the manager's branch may accept, nearest pickup first."""
+    branch_id = _manager_branch_id(manager)
+    distance_m = func.ST_Distance(Orders.pickup_location, _branch_location(branch_id), type_=Float)
+    rows = db.execute(
+        _order_query()
+        .add_columns(distance_m.label("distance_m"))
+        .where(_available_to_branch(branch_id))
+        .order_by(distance_m.asc().nulls_last(), Orders.created_at.desc(), Orders.id.desc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    ).all()
+    return [
+        AvailableOrderResponse.model_validate(order).model_copy(
+            update={"distance_km": None if distance is None else round(distance / METRES_PER_KM, 3)}
+        )
+        for order, distance in rows
+    ]
 
 
 def get_order(order_id: int, user: User, db: Session) -> Orders:
@@ -100,12 +131,7 @@ def create_order(order_data: OrderCreate, customer: User, db: Session) -> Orders
     if order_data.branch_id is not None and db.get(LaundryBranch, order_data.branch_id) is None:
         raise NotFoundError("Branch not found")
 
-    order = Orders(
-        customer_id=customer.id,
-        branch_id=order_data.branch_id,
-        details=order_data.details,
-        status=OrderStatus.PENDING,
-    )
+    order = Orders(customer_id=customer.id, status=OrderStatus.PENDING, **order_data.model_dump())
     db.add(order)
     db.commit()
     return get_order(order.id, customer, db)

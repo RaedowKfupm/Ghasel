@@ -1,0 +1,64 @@
+from datetime import datetime
+from typing import Annotated, Self
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+from app.schemas.geo import Latitude, Longitude
+from app.schemas.pagination import Pagination
+
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+Phone = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\+?[0-9 ()-]{6,20}$")]
+ServiceRadiusKm = Annotated[float, Field(gt=0, le=100, allow_inf_nan=False)]
+
+
+class _PairedCoordinates(BaseModel):
+    """Latitude and longitude are either both supplied or both omitted."""
+
+    latitude: Latitude | None = None
+    longitude: Longitude | None = None
+
+    @model_validator(mode="after")
+    def _coordinates_are_paired(self) -> Self:
+        supplied = {"latitude", "longitude"} & self.model_fields_set
+        if len(supplied) == 1 or (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
+        return self
+
+
+class BranchCreate(_PairedCoordinates):
+    branch_name: Text
+    branch_address: Text
+    phone: Phone
+    service_radius_km: ServiceRadiusKm = 10
+
+
+class BranchUpdate(_PairedCoordinates):
+    branch_name: Text | None = None
+    branch_address: Text | None = None
+    phone: Phone | None = None
+    service_radius_km: ServiceRadiusKm | None = None
+
+
+class BranchResponse(BaseModel):
+    id: int
+    laundry_id: int
+    laundry_name: str
+    branch_name: str | None = None
+    branch_address: str
+    phone: str
+    latitude: float | None = None
+    longitude: float | None = None
+    service_radius_km: float
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NearbyBranchResponse(BranchResponse):
+    distance_km: float
+
+
+class NearbySearch(Pagination):
+    latitude: Latitude
+    longitude: Longitude
+    radius_km: Annotated[float, Field(gt=0, le=50, allow_inf_nan=False)] = 5

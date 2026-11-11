@@ -2,11 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from app.core.dependencies import Database, require_roles
+from app.core.dependencies import Database, Page, require_roles
 from app.core.enums import UserRole
 from app.models.Users import User
-from app.schemas.order import OrderCreate, OrderResponse, OrderStatusUpdate
-from app.schemas.pagination import Pagination
+from app.schemas.order import AvailableOrderResponse, OrderCreate, OrderResponse, OrderStatusUpdate
 from app.services import orders as order_service
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
@@ -15,7 +14,6 @@ Customer = Annotated[User, Depends(require_roles(UserRole.CUSTOMER))]
 Manager = Annotated[User, Depends(require_roles(UserRole.MANAGER))]
 OrderParticipant = Annotated[User, Depends(require_roles(UserRole.CUSTOMER, UserRole.MANAGER))]
 OrderViewer = Annotated[User, Depends(require_roles(UserRole.CUSTOMER, UserRole.MANAGER, UserRole.ADMIN))]
-Page = Annotated[Pagination, Depends()]
 
 
 @router.post("/", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
@@ -28,7 +26,7 @@ def list_orders(pagination: Page, user: OrderViewer, db: Database):
     return order_service.list_orders(pagination, user, db)
 
 
-@router.get("/available", response_model=list[OrderResponse])
+@router.get("/available", response_model=list[AvailableOrderResponse])
 def list_available_orders(pagination: Page, manager: Manager, db: Database):
     return order_service.list_available_orders(pagination, manager, db)
 

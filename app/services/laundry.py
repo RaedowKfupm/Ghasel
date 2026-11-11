@@ -6,7 +6,8 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.models.LaundryProfiles import LaundryBranch, LaundryProfile, LaundryRequest
 from app.models.Users import User
-from app.schemas.laundry import BranchCreate, LaundryCreate, ManagerCreate
+from app.schemas.branch import BranchCreate
+from app.schemas.laundry import LaundryCreate, ManagerCreate
 from app.schemas.pagination import Pagination
 
 
@@ -57,7 +58,7 @@ def list_laundry_branches(laundry_id: int, pagination: Pagination, db: Session) 
     return list(
         db.scalars(
             select(LaundryBranch)
-            .options(selectinload(LaundryBranch.operators))
+            .options(selectinload(LaundryBranch.laundry))
             .where(LaundryBranch.laundry_id == laundry_id)
             .order_by(LaundryBranch.id)
             .offset(pagination.offset)
@@ -97,8 +98,7 @@ def create_laundry_branch(branch_data: BranchCreate, laundry: LaundryProfile, db
     branch = LaundryBranch(laundry_id=laundry.id, **branch_data.model_dump())
     db.add(branch)
     db.commit()
-    db.refresh(branch)
-    return branch
+    return db.get(LaundryBranch, branch.id, options=[selectinload(LaundryBranch.laundry)])
 
 
 def create_laundry_manager(laundry: LaundryProfile, manager_data: ManagerCreate, db: Session) -> User:
@@ -124,3 +124,14 @@ def create_laundry_manager(laundry: LaundryProfile, manager_data: ManagerCreate,
     db.commit()
     db.refresh(manager)
     return manager
+
+
+def list_laundry_managers(laundry: LaundryProfile, db: Session) -> list[User]:
+    return list(
+        db.scalars(
+            select(User)
+            .join(LaundryBranch, User.laundry_branch_id == LaundryBranch.id)
+            .where(LaundryBranch.laundry_id == laundry.id, User.role == UserRole.MANAGER)
+            .order_by(User.id)
+        )
+    )
