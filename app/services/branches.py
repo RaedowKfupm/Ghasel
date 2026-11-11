@@ -13,7 +13,24 @@ from app.core.exceptions import NotFoundError, PermissionDeniedError
 from app.db.spatial import METRES_PER_KM, point
 from app.models.LaundryProfiles import LaundryBranch
 from app.models.Users import User
-from app.schemas.branch import BranchUpdate, NearbyBranchResponse, NearbySearch
+from app.schemas.branch import BranchUpdate, NearbyBranchResponse, NearbySearch, RatedBranchResponse
+from app.schemas.pagination import Pagination
+from app.services.reviews import rating_summary
+
+
+def _with_ratings(query: Select) -> Select:
+    """Add rating_average/rating_count columns (NULL/0 for unreviewed branches)."""
+    ratings = rating_summary().subquery("ratings")
+    return query.outerjoin(ratings, ratings.c.branch_id == LaundryBranch.id).add_columns(
+        ratings.c.rating_average,
+        func.coalesce(ratings.c.rating_count, 0).label("rating_count"),
+    )
+
+
+def _rated(branch: LaundryBranch, rating_average: float | None, rating_count: int, **extra) -> dict:
+    fields = {name: getattr(branch, name) for name in RatedBranchResponse.model_fields if hasattr(branch, name)}
+    return {**fields, "rating_average": rating_average, "rating_count": rating_count, **extra}
+
 
 def nearby_branches_query(search: NearbySearch) -> Select:
     """Branches within the search radius with their distance in metres, nearest first."""
@@ -29,20 +46,33 @@ def nearby_branches_query(search: NearbySearch) -> Select:
 
 
 def search_nearby_branches(search: NearbySearch, db: Session) -> list[NearbyBranchResponse]:
-    query = nearby_branches_query(search).options(selectinload(LaundryBranch.laundry))
-    return [_nearby_response(branch, distance) for branch, distance in db.execute(query)]
+    query = _with_ratings(nearby_branches_query(search)).options(selectinload(LaundryBranch.laundry))
+    return [
+        NearbyBranchResponse(**_rated(branch, average, count, distance_km=round(distance / METRES_PER_KM, 3)))
+        for branch, distance, average, count in db.execute(query)
+    ]
 
 
-def _nearby_response(branch: LaundryBranch, distance_m: float) -> NearbyBranchResponse:
-    fields = {name: getattr(branch, name) for name in NearbyBranchResponse.model_fields if name != "distance_km"}
-    return NearbyBranchResponse(**fields, distance_km=round(distance_m / METRES_PER_KM, 3))
+def list_rated_branches(laundry_id: int, pagination: Pagination, db: Session) -> list[RatedBranchResponse]:
+    query = _with_ratings(
+        select(LaundryBranch)
+        .options(selectinload(LaundryBranch.laundry))
+        .where(LaundryBranch.laundry_id == laundry_id)
+        .order_by(LaundryBranch.id)
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    )
+    return [RatedBranchResponse(**_rated(*row)) for row in db.execute(query)]
 
 
-def get_branch(branch_id: int, db: Session) -> LaundryBranch:
-    branch = db.get(LaundryBranch, branch_id, options=[selectinload(LaundryBranch.laundry)])
-    if branch is None:
+def get_branch(branch_id: int, db: Session) -> RatedBranchResponse:
+    query = _with_ratings(
+        select(LaundryBranch).options(selectinload(LaundryBranch.laundry)).where(LaundryBranch.id == branch_id)
+    )
+    row = db.execute(query).first()
+    if row is None:
         raise NotFoundError("Branch not found")
-    return branch
+    return RatedBranchResponse(**_rated(*row))
 
 
 def can_manage_branch(user: User, branch: LaundryBranch) -> bool:
@@ -54,8 +84,10 @@ def can_manage_branch(user: User, branch: LaundryBranch) -> bool:
     return False
 
 
-def update_branch(branch_id: int, changes: BranchUpdate, user: User, db: Session) -> LaundryBranch:
-    branch = get_branch(branch_id, db)
+def update_branch(branch_id: int, changes: BranchUpdate, user: User, db: Session) -> RatedBranchResponse:
+    branch = db.get(LaundryBranch, branch_id)
+    if branch is None:
+        raise NotFoundError("Branch not found")
     if not can_manage_branch(user, branch):
         raise PermissionDeniedError("You cannot manage this branch")
 

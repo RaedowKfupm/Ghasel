@@ -120,7 +120,10 @@ def get_order(order_id: int, user: User, db: Session) -> Orders:
     """A single order the user may see, including its status history."""
     query = (
         _order_query()
-        .options(selectinload(Orders.events).selectinload(OrderStatusEvent.actor))
+        .options(
+            selectinload(Orders.events).selectinload(OrderStatusEvent.actor),
+            selectinload(Orders.review),
+        )
         .where(Orders.id == order_id)
     )
     visibility = _visible_to(user)

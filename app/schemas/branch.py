@@ -54,7 +54,14 @@ class BranchResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class NearbyBranchResponse(BranchResponse):
+class RatedBranchResponse(BranchResponse):
+    """A branch with its rating aggregated from real customer reviews."""
+
+    rating_average: float | None = None  # None until the branch has a review
+    rating_count: int
+
+
+class NearbyBranchResponse(RatedBranchResponse):
     distance_km: float
 
 

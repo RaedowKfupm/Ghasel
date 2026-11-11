@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_f
 from app.core.enums import OrderStatus, UserRole
 from app.core.order_lifecycle import next_progress_status
 from app.schemas.geo import Latitude, Longitude
+from app.schemas.review import ReviewResponse
 
 OrderDetails = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=1000)]
 Address = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=300)]
@@ -68,6 +69,7 @@ class StatusEventResponse(BaseModel):
 
 class OrderDetailResponse(OrderResponse):
     history: list[StatusEventResponse] = Field(validation_alias="events")
+    review: ReviewResponse | None = None
 
 
 class AvailableOrderResponse(OrderResponse):

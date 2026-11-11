@@ -6,9 +6,10 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.models.LaundryProfiles import LaundryBranch, LaundryProfile, LaundryRequest
 from app.models.Users import User
-from app.schemas.branch import BranchCreate
+from app.schemas.branch import BranchCreate, RatedBranchResponse
 from app.schemas.laundry import LaundryCreate, ManagerCreate
 from app.schemas.pagination import Pagination
+from app.services.branches import list_rated_branches
 
 
 def create_laundry_request(request_data: LaundryCreate, owner: User, db: Session) -> LaundryRequest:
@@ -53,18 +54,9 @@ def get_laundry(laundry_id: int, db: Session) -> LaundryProfile:
     return laundry
 
 
-def list_laundry_branches(laundry_id: int, pagination: Pagination, db: Session) -> list[LaundryBranch]:
+def list_laundry_branches(laundry_id: int, pagination: Pagination, db: Session) -> list[RatedBranchResponse]:
     get_laundry(laundry_id, db)
-    return list(
-        db.scalars(
-            select(LaundryBranch)
-            .options(selectinload(LaundryBranch.laundry))
-            .where(LaundryBranch.laundry_id == laundry_id)
-            .order_by(LaundryBranch.id)
-            .offset(pagination.offset)
-            .limit(pagination.limit)
-        )
-    )
+    return list_rated_branches(laundry_id, pagination, db)
 
 
 def approve_laundry_request(request_id: int, db: Session) -> LaundryProfile:

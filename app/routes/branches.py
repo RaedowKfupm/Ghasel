@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from app.core.dependencies import Database, query_model, require_roles
 from app.core.enums import UserRole
 from app.models.Users import User
-from app.schemas.branch import BranchResponse, BranchUpdate, NearbyBranchResponse, NearbySearch
+from app.schemas.branch import BranchUpdate, NearbyBranchResponse, NearbySearch, RatedBranchResponse
 from app.services import branches as branch_service
 
 router = APIRouter(prefix="/branches", tags=["Branches"])
@@ -19,11 +19,11 @@ def search_nearby_branches(search: Annotated[NearbySearch, Depends(query_model(N
     return branch_service.search_nearby_branches(search, db)
 
 
-@router.get("/{branch_id}", response_model=BranchResponse)
+@router.get("/{branch_id}", response_model=RatedBranchResponse)
 def get_branch(branch_id: int, db: Database):
     return branch_service.get_branch(branch_id, db)
 
 
-@router.patch("/{branch_id}", response_model=BranchResponse)
+@router.patch("/{branch_id}", response_model=RatedBranchResponse)
 def update_branch(branch_id: int, changes: BranchUpdate, user: BranchStaff, db: Database):
     return branch_service.update_branch(branch_id, changes, user, db)

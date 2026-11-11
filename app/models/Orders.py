@@ -53,6 +53,7 @@ class Orders(Base):
 
     customer = relationship("User", back_populates="orders", uselist=False)
     branch = relationship("LaundryBranch", back_populates="orders", uselist=False)
+    review = relationship("Review", back_populates="order", uselist=False, passive_deletes=True)
     events = relationship(
         "OrderStatusEvent",
         back_populates="order",

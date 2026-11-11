@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status
 from app.core.dependencies import Database, OwnedLaundry, Page, require_roles
 from app.core.enums import UserRole
 from app.models.Users import User
-from app.schemas.branch import BranchCreate, BranchResponse
+from app.schemas.branch import BranchCreate, BranchResponse, RatedBranchResponse
 from app.schemas.laundry import (
     LaundryCreate,
     LaundryRequestResponse,
@@ -49,7 +49,7 @@ def get_laundry(laundry_id: int, db: Database):
     return laundry_service.get_laundry(laundry_id, db)
 
 
-@router.get("/{laundry_id}/branches", response_model=list[BranchResponse])
+@router.get("/{laundry_id}/branches", response_model=list[RatedBranchResponse])
 def list_laundry_branches(laundry_id: int, pagination: Page, db: Database):
     return laundry_service.list_laundry_branches(laundry_id, pagination, db)
 
