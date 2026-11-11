@@ -4,9 +4,10 @@ from itertools import count
 
 from sqlalchemy.orm import Session
 
-from app.core.enums import UserRole
+from app.core.enums import OrderStatus, UserRole
 from app.core.security import create_access_token, hash_password
 from app.models.LaundryProfiles import LaundryBranch, LaundryProfile
+from app.models.Orders import Orders
 from app.models.Users import User
 
 PASSWORD = "correct-horse-battery"
@@ -61,3 +62,22 @@ def make_branch(db: Session, laundry: LaundryProfile | None = None, **fields) ->
 
 def make_manager(db: Session, branch: LaundryBranch) -> User:
     return make_user(db, UserRole.MANAGER, laundry_branch_id=branch.id)
+
+
+def make_order(
+    db: Session,
+    customer: User,
+    branch: LaundryBranch | None = None,
+    status: OrderStatus = OrderStatus.PENDING,
+    details: str = "3 shirts, wash and iron",
+) -> Orders:
+    order = Orders(
+        customer_id=customer.id,
+        branch_id=branch.id if branch else None,
+        status=status,
+        details=details,
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
