@@ -184,15 +184,24 @@ class TestCancellation:
         order = make_order(db, customer)
         assert client.post(f"/orders/{order.id}/cancel", headers=auth_headers(manager_a)).status_code == 404
 
-    def test_cannot_cancel_once_out_for_delivery(self, client, db, customer, branch_a):
-        order = make_order(db, customer, branch_a, status=OrderStatus.DELIVERING)
+    @pytest.mark.parametrize(
+        "status", [OrderStatus.PICKED_UP, OrderStatus.CLEANING, OrderStatus.DELIVERING, OrderStatus.COMPLETED]
+    )
+    def test_cannot_cancel_once_laundry_is_collected(self, client, db, customer, branch_a, manager_a, status):
+        order = make_order(db, customer, branch_a, status=status)
+        assert client.post(f"/orders/{order.id}/cancel", headers=auth_headers(customer)).status_code == 400
+        assert client.post(f"/orders/{order.id}/cancel", headers=auth_headers(manager_a)).status_code == 400
+
+    def test_cancelling_twice_is_rejected(self, client, db, customer):
+        order = make_order(db, customer)
+        client.post(f"/orders/{order.id}/cancel", headers=auth_headers(customer))
         assert client.post(f"/orders/{order.id}/cancel", headers=auth_headers(customer)).status_code == 400
 
 
 class TestProgression:
     def test_assigned_branch_moves_order_through_lifecycle(self, client, db, customer, branch_a, manager_a):
         order = make_order(db, customer, branch_a, status=OrderStatus.ACCEPTED)
-        for target in ("delivering", "completed"):
+        for target in ("picked_up", "cleaning", "ready", "delivering", "completed"):
             response = client.patch(
                 f"/orders/{order.id}/status", headers=auth_headers(manager_a), json={"status": target}
             )
@@ -203,9 +212,13 @@ class TestProgression:
     @pytest.mark.parametrize(
         ("current", "target"),
         [
+            (OrderStatus.ACCEPTED, "cleaning"),
             (OrderStatus.ACCEPTED, "completed"),
+            (OrderStatus.PICKED_UP, "ready"),
+            (OrderStatus.READY, "cleaning"),
             (OrderStatus.COMPLETED, "delivering"),
-            (OrderStatus.CANCELLED, "delivering"),
+            (OrderStatus.CANCELLED, "picked_up"),
+            (OrderStatus.PENDING, "picked_up"),
         ],
     )
     def test_skipping_or_reversing_states_is_rejected(self, client, db, customer, branch_a, manager_a, current, target):
@@ -222,7 +235,7 @@ class TestProgression:
     def test_other_branch_cannot_progress_order(self, client, db, customer, branch_a, manager_b):
         order = make_order(db, customer, branch_a, status=OrderStatus.ACCEPTED)
         response = client.patch(
-            f"/orders/{order.id}/status", headers=auth_headers(manager_b), json={"status": "delivering"}
+            f"/orders/{order.id}/status", headers=auth_headers(manager_b), json={"status": "picked_up"}
         )
         assert response.status_code == 404
 
@@ -246,3 +259,52 @@ class TestDatabaseConstraints:
             db.execute(text("UPDATE orders SET status = 'LOST' WHERE id = :id"), {"id": order.id})
             db.commit()
         db.rollback()
+
+
+class TestTracking:
+    def test_history_records_each_stage_and_who_made_it(self, client, db, customer, branch_a, manager_a):
+        created = client.post("/orders/", headers=auth_headers(customer), json=order_payload()).json()
+        order_id = created["id"]
+        client.post(f"/orders/{order_id}/accept", headers=auth_headers(manager_a))
+        for target in ("picked_up", "cleaning"):
+            client.patch(f"/orders/{order_id}/status", headers=auth_headers(manager_a), json={"status": target})
+
+        detail = client.get(f"/orders/{order_id}", headers=auth_headers(customer)).json()
+
+        assert [(e["status"], e["actor_role"]) for e in detail["history"]] == [
+            ("pending", "customer"),
+            ("accepted", "manager"),
+            ("picked_up", "manager"),
+            ("cleaning", "manager"),
+        ]
+        timestamps = [e["created_at"] for e in detail["history"]]
+        assert timestamps == sorted(timestamps)
+        assert detail["status"] == "cleaning"
+        assert detail["next_status"] == "ready"
+
+    def test_rejected_transition_leaves_no_history(self, client, db, customer, branch_a, manager_a):
+        order_id = client.post("/orders/", headers=auth_headers(customer), json=order_payload()).json()["id"]
+        client.patch(f"/orders/{order_id}/status", headers=auth_headers(manager_a), json={"status": "ready"})
+        history = client.get(f"/orders/{order_id}", headers=auth_headers(customer)).json()["history"]
+        assert [e["status"] for e in history] == ["pending"]
+
+    def test_lost_acceptance_race_leaves_single_accepted_event(self, client, db, customer, manager_a, manager_b):
+        order_id = client.post("/orders/", headers=auth_headers(customer), json=order_payload()).json()["id"]
+        client.post(f"/orders/{order_id}/accept", headers=auth_headers(manager_a))
+        client.post(f"/orders/{order_id}/accept", headers=auth_headers(manager_b))
+        history = client.get(f"/orders/{order_id}", headers=auth_headers(customer)).json()["history"]
+        assert [e["status"] for e in history] == ["pending", "accepted"]
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (OrderStatus.PENDING, None),
+            (OrderStatus.ACCEPTED, "picked_up"),
+            (OrderStatus.READY, "delivering"),
+            (OrderStatus.COMPLETED, None),
+            (OrderStatus.CANCELLED, None),
+        ],
+    )
+    def test_next_status_hint_follows_lifecycle(self, client, db, customer, branch_a, status, expected):
+        order = make_order(db, customer, branch_a, status=status)
+        assert client.get(f"/orders/{order.id}", headers=auth_headers(customer)).json()["next_status"] == expected

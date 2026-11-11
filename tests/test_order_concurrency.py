@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 
 from app.core.enums import OrderStatus
 from app.core.exceptions import ConflictError, NotFoundError
-from app.models.Orders import Orders
+from app.models.Orders import OrderStatusEvent, Orders
 from app.models.Users import User
 from app.services.orders import accept_order
 from tests.factories import make_branch, make_manager, make_order, make_user
@@ -53,6 +53,12 @@ def test_exactly_one_of_many_simultaneous_acceptances_succeeds(db, session_facto
         stored = db.get(Orders, order.id)
         assert stored.status == OrderStatus.ACCEPTED
         assert stored.branch_id == winners[0]
+        accepted_events = db.scalars(
+            select(OrderStatusEvent).where(
+                OrderStatusEvent.order_id == order.id, OrderStatusEvent.status == OrderStatus.ACCEPTED
+            )
+        ).all()
+        assert len(accepted_events) == 1
 
 
 def test_acceptance_blocked_by_in_flight_claim_fails_after_it_commits(db, session_factory):
