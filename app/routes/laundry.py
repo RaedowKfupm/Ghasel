@@ -29,6 +29,12 @@ def apply_for_laundry(
     return laundry_service.create_laundry_request(laundry_data, owner, db)
 
 
+@router.get("/requests/me", response_model=LaundryRequestResponse | None)
+def get_my_laundry_request(db: Database, owner: Annotated[User, Depends(require_roles(UserRole.LAUNDRY))]):
+    """The owner's most recent application, or null if they have never applied."""
+    return laundry_service.get_latest_request(owner, db)
+
+
 @router.get("/requests", response_model=list[LaundryRequestResponse], dependencies=admin_only)
 def list_laundry_requests(pagination: Page, db: Database):
     return laundry_service.list_laundry_requests(pagination, db)

@@ -107,3 +107,11 @@ class TestLaundryOnboarding:
             json={"name": "M", "email": "m@example.com", "password": PASSWORD, "branch_id": foreign_branch.id},
         )
         assert response.status_code == 404
+
+    def test_owner_sees_own_latest_application(self, client, db):
+        owner = make_user(db, UserRole.LAUNDRY)
+        assert client.get("/laundries/requests/me", headers=auth_headers(owner)).json() is None
+        client.post("/laundries/", headers=auth_headers(owner), json={"company_name": "Sparkle"})
+        mine = client.get("/laundries/requests/me", headers=auth_headers(owner)).json()
+        assert (mine["company_name"], mine["status"]) == ("Sparkle", "pending")
+        assert client.get("/laundries/requests/me", headers=auth_headers(make_user(db))).status_code == 403

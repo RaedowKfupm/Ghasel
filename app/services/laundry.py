@@ -36,6 +36,15 @@ def create_laundry_request(request_data: LaundryCreate, owner: User, db: Session
     return laundry_request
 
 
+def get_latest_request(owner: User, db: Session) -> LaundryRequest | None:
+    return db.scalar(
+        select(LaundryRequest)
+        .where(LaundryRequest.owner_id == owner.id)
+        .order_by(LaundryRequest.created_at.desc(), LaundryRequest.id.desc())
+        .limit(1)
+    )
+
+
 def list_laundry_requests(pagination: Pagination, db: Session) -> list[LaundryRequest]:
     return list(
         db.scalars(
