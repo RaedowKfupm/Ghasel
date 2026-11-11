@@ -1,43 +1,59 @@
-# Ghasel Frontend
+# Ghasel frontend
 
-A deliberately small vanilla HTML/CSS/JS frontend matched to the current Ghasel FastAPI API.
+A dependency-free single-page app: plain HTML, CSS and native ES modules. There is no
+build step. Every number, status, distance and rating it shows comes from the Ghasel API.
 
-## Run it locally
+## Running it
 
-From the repository root, start the API:
+Start the API from the repository root, then serve this folder:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-In a second terminal, serve this folder:
-
-```powershell
 .\.venv\Scripts\python.exe -m http.server 5500 --directory .\frontend
 ```
 
-Open `http://127.0.0.1:5500`. The API base defaults to `http://127.0.0.1:8000`; `window.GHASEL_API_BASE` can override it. FastAPI allows the frontend origins `http://127.0.0.1:5500` and `http://localhost:5500` for local development.
+Open http://127.0.0.1:5500. The API origin defaults to `http://127.0.0.1:8000`; to use
+another, define `window.GHASEL_API_BASE` before `js/main.js` loads. The API's CORS policy
+allows `http://127.0.0.1:5500` and `http://localhost:5500`.
 
-## Current API assumptions
+## Structure
 
-This UI uses the current backend routes:
-- POST `/auth/register`
-- POST `/auth/login`
-- GET/PATCH `/users/me`
-- GET `/users/` (admin)
-- POST `/laundries/`
-- GET `/laundries/requests` (admin)
-- POST `/laundries/requests/{request_id}/approve` (admin)
-- GET `/laundries/{laundry_id}`
-- GET/POST `/laundries/{laundry_id}/branches`
-- POST `/laundries/{laundry_id}/managers`
-- POST `/orders/` with a branch ID for direct orders or `null` for open orders
-- GET `/orders/` returns orders scoped by customer, manager branch/open pool, or admin role
-- GET `/orders/{order_id}`
-- PATCH `/orders/{order_id}/status`
+```
+index.html            App shell: sidebar / mobile top bar, page outlet, modal and toast roots
+styles/
+  base.css            Design tokens (colours, radii, shadows), reset, typography
+  layout.css          Auth screen, app shell, navigation, grids, breakpoints
+  components.css      Buttons, forms, cards, badges, ratings, order tracking, modals, states
+js/
+  main.js             Boot: restore the session, choose the role's pages
+  router.js           Hash routing and navigation
+  api.js              The only module that talks to the backend
+  session.js          Token persistence
+  dom.js              html`` templates that escape every interpolated value
+  feedback.js         Toasts, modals, confirm dialog, loading/empty/error states
+  format.js           Dates, distances, status badges, star ratings
+  lifecycle.js        Display labels for order statuses (the rules live in the API)
+  location.js         Geolocation, city presets, saved search location
+  icons.js            Inline SVG icons
+  components/         Order cards & dialogs, branch cards & details, location picker, branch form
+  pages/              One module per screen
+```
 
-## Known backend gaps reflected honestly in the UI
+## What each role sees
 
-- `GET /laundries/` (nearby laundries) is currently unimplemented, so V1 uses laundry-ID lookup.
-- Open orders are currently visible to all managers; nearby filtering and notifications are deferred.
-- Ratings, ETA, maps, reviews and real nearby search are intentionally not faked; they can appear in V2 when the API supports them.
+| Role | Screens |
+|---|---|
+| Customer | Home, nearby discovery (distance and rating), marketplace or direct requests, order tracking timeline, reviews, profile |
+| Branch manager | Available orders nearest first, accept, advance each stage, cancel before pickup, branch details and location |
+| Laundry owner | Application status, branches (with location and service radius), branch managers |
+| Admin | Approve laundry applications, list accounts |
+
+## Notes
+
+- **Location.** Customers can share their browser location, pick a city centre, or type
+  coordinates. There is no paid map or geocoding service.
+- **Tracking.** Progress is the order's recorded status history. Nothing is simulated,
+  and there is no live GPS.
+- **Security.** All dynamic text is escaped by the `html` template tag. The access token
+  is kept in `localStorage`, which is acceptable for this local project but means any XSS
+  could read it.

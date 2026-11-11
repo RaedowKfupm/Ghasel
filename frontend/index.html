@@ -2,161 +2,45 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Ghasel laundry marketplace" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Ghasel — a laundry marketplace connecting customers with nearby laundries." />
+  <meta name="theme-color" content="#1d1c1a" />
   <title>Ghasel</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles/base.css" />
+  <link rel="stylesheet" href="styles/layout.css" />
+  <link rel="stylesheet" href="styles/components.css" />
 </head>
 <body>
-  <div id="toast" class="toast" aria-live="polite"></div>
+  <div id="auth-root"></div>
 
-  <section id="authView" class="auth-shell">
-    <div class="auth-brand-panel">
-      <div class="brand brand-large"><span class="brand-mark">غ</span> Ghasel</div>
-      <div class="auth-copy">
-        <span class="eyebrow">Laundry, simplified.</span>
-        <h1>Pickup. Clean. Return.</h1>
-        <p>A clean interface for a backend built around real customer, laundry, branch, and order workflows.</p>
-      </div>
-      <div class="route-art" aria-hidden="true">
-        <div class="route-line route-a"></div>
-        <div class="route-line route-b"></div>
-        <div class="route-node n1">⌂</div>
-        <div class="route-node n2">◉</div>
-        <div class="route-node n3">✓</div>
-      </div>
-    </div>
-
-    <div class="auth-card-wrap">
-      <div class="auth-card">
-        <div class="mobile-brand brand"><span class="brand-mark">غ</span> Ghasel</div>
-        <div class="auth-tabs">
-          <button class="auth-tab active" data-auth-tab="login">Login</button>
-          <button class="auth-tab" data-auth-tab="register">Create account</button>
-        </div>
-
-        <form id="loginForm" class="auth-form">
-          <div>
-            <span class="eyebrow">Welcome back</span>
-            <h2>Sign in to Ghasel</h2>
-            <p class="muted">Use your existing customer, laundry, manager, or admin account.</p>
-          </div>
-          <label>Email<input id="loginEmail" type="email" required placeholder="you@example.com" /></label>
-          <label>Password<input id="loginPassword" type="password" required placeholder="••••••••" /></label>
-          <button class="btn btn-primary btn-full" type="submit">Sign in</button>
-        </form>
-
-        <form id="registerForm" class="auth-form hidden">
-          <div>
-            <span class="eyebrow">Get started</span>
-            <h2>Create an account</h2>
-            <p class="muted">Public registration supports customers and laundry owners.</p>
-          </div>
-          <label>Name<input id="registerName" required placeholder="Your name" /></label>
-          <label>Email<input id="registerEmail" type="email" required placeholder="you@example.com" /></label>
-          <label>Password<input id="registerPassword" type="password" required minlength="6" placeholder="At least 6 characters" /></label>
-          <label>Account type
-            <select id="registerRole">
-              <option value="customer">Customer</option>
-              <option value="laundry">Laundry owner</option>
-            </select>
-          </label>
-          <button class="btn btn-primary btn-full" type="submit">Create account</button>
-        </form>
-      </div>
-    </div>
-  </section>
-
-  <div id="appView" class="app-shell hidden">
+  <div id="app-root" class="shell" hidden>
     <aside class="sidebar">
-      <a href="#" class="brand"><span class="brand-mark">غ</span><span>Ghasel</span></a>
-      <nav id="desktopNav" class="nav-list"></nav>
-      <div class="sidebar-bottom">
-        <div class="mini-profile">
-          <div id="sidebarAvatar" class="avatar">G</div>
-          <div>
-            <strong id="sidebarName">User</strong>
-            <span id="sidebarRole">customer</span>
-          </div>
+      <a class="brand" href="#/"><span class="brand-mark">غ</span>Ghasel</a>
+      <nav id="sidebar-nav" class="nav" aria-label="Main"></nav>
+      <div class="sidebar-footer">
+        <div class="identity">
+          <span id="identity-avatar" class="avatar"></span>
+          <div><strong id="identity-name"></strong><span id="identity-role"></span></div>
         </div>
-        <button id="logoutBtn" class="nav-item danger-button">↪ <span>Logout</span></button>
+        <button id="sign-out" class="nav-link signout" type="button"></button>
       </div>
     </aside>
 
-    <header class="mobile-header">
-      <a href="#" class="brand"><span class="brand-mark">غ</span> Ghasel</a>
-      <button id="mobileProfileBtn" class="avatar">G</button>
+    <header class="topbar">
+      <a class="brand" href="#/"><span class="brand-mark">غ</span>Ghasel</a>
+      <a id="topbar-profile" class="avatar" href="#/profile" aria-label="Your account"></a>
     </header>
 
-    <main class="main">
-      <section id="dashboardPage" class="page"></section>
-
-      <section id="ordersPage" class="page hidden">
-        <div class="page-head">
-          <div><span class="eyebrow">Orders</span><h1>Order activity</h1><p class="muted">Track the lifecycle of your laundry orders.</p></div>
-          <button id="refreshOrdersBtn" class="btn btn-secondary">Refresh</button>
-        </div>
-        <div id="ordersContent"></div>
-      </section>
-
-      <section id="laundriesPage" class="page hidden">
-        <div class="page-head">
-          <div><span class="eyebrow">Discovery</span><h1>Laundries & branches</h1><p class="muted">V1 uses direct laundry lookup. Nearby discovery can replace this in V2.</p></div>
-        </div>
-        <div class="two-col">
-          <div class="card">
-            <h3>Find a laundry</h3>
-            <p class="muted">Enter a laundry ID, then browse its branches.</p>
-            <form id="laundryLookupForm" class="inline-form">
-              <input id="laundryLookupId" type="number" min="1" placeholder="Laundry ID" required />
-              <button class="btn btn-primary" type="submit">Find</button>
-            </form>
-          </div>
-          <div id="laundryResult" class="card empty-card">
-            <div class="empty-icon">⌕</div><h3>No laundry selected</h3><p class="muted">Search by ID to load company and branch information.</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="businessPage" class="page hidden"></section>
-
-      <section id="adminPage" class="page hidden"></section>
-
-      <section id="profilePage" class="page hidden">
-        <div class="page-head">
-          <div><span class="eyebrow">Settings</span><h1>Account settings</h1><p class="muted">Manage your personal information.</p></div>
-        </div>
-        <div class="settings-layout">
-          <div class="settings-rail">
-            <div class="settings-icon active">⚙</div>
-          </div>
-          <form id="profileForm" class="card profile-card">
-            <div class="profile-hero">
-              <div id="profileAvatar" class="avatar avatar-xl">G</div>
-              <div><h3>Personal information</h3><p class="muted">Your account identity and contact details.</p></div>
-            </div>
-            <div class="form-grid">
-              <label>Name<input id="profileName" required /></label>
-              <label>Email<input id="profileEmail" type="email" required /></label>
-              <label>Phone<input id="profilePhone" placeholder="+966..." /></label>
-              <label class="span-2">Address<input id="profileAddress" placeholder="Your address" /></label>
-            </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Save changes</button></div>
-          </form>
-        </div>
-      </section>
-    </main>
-
-    <nav id="mobileNav" class="mobile-nav"></nav>
+    <main id="page-root" class="main"></main>
+    <nav id="bottom-nav" class="bottom-nav" aria-label="Main"></nav>
   </div>
 
-  <div id="modalBackdrop" class="modal-backdrop hidden">
-    <div id="modal" class="modal"></div>
-  </div>
+  <div id="modal-root"></div>
+  <div id="toasts" class="toast-region" aria-live="polite"></div>
 
-  <script src="app.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
