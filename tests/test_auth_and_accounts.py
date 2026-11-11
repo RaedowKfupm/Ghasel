@@ -85,8 +85,8 @@ class TestLaundryOnboarding:
 
     def test_second_pending_application_is_rejected(self, client, db):
         owner = make_user(db, UserRole.LAUNDRY)
-        client.post("/laundries/", headers=auth_headers(owner), json={"company_name": "A"})
-        response = client.post("/laundries/", headers=auth_headers(owner), json={"company_name": "B"})
+        client.post("/laundries/", headers=auth_headers(owner), json={"company_name": "Alpha Wash"})
+        response = client.post("/laundries/", headers=auth_headers(owner), json={"company_name": "Beta Wash"})
         assert response.status_code == 409
 
     def test_owner_cannot_manage_another_company(self, client, db):

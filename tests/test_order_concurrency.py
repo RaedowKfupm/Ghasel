@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import select, text
 
 from app.core.enums import OrderStatus
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.models.Orders import Orders
 from app.models.Users import User
 from app.services.orders import accept_order
@@ -20,13 +20,17 @@ CONTENDERS = 12
 
 
 def _attempt_accept(session_factory, manager_id: int, order_id: int, barrier: threading.Barrier) -> int | None:
-    """Return the winning branch id, or None if this attempt lost the race."""
+    """Return the winning branch id, or None if this attempt lost the race.
+
+    A loser either fails the compare-and-set (409) or, if it only reads the order
+    after the winner committed, no longer sees it at all (404).
+    """
     with session_factory() as session:
         manager = session.get(User, manager_id)
         barrier.wait()
         try:
             return accept_order(order_id, manager, session).branch_id
-        except ConflictError:
+        except (ConflictError, NotFoundError):
             return None
 
 

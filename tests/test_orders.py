@@ -6,7 +6,13 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.enums import OrderStatus, UserRole
 from app.models.Orders import Orders
-from tests.factories import auth_headers, make_branch, make_manager, make_order, make_user
+from tests.factories import ORIGIN, auth_headers, make_branch, make_manager, make_order, make_user
+
+PICKUP = {"pickup_address": "Building 57, KFUPM", "pickup_latitude": ORIGIN[0], "pickup_longitude": ORIGIN[1]}
+
+
+def order_payload(**fields) -> dict:
+    return {"details": "3 shirts, wash and iron", **PICKUP, **fields}
 
 
 @pytest.fixture
@@ -40,7 +46,7 @@ def ids(response) -> set[int]:
 
 class TestCreateOrder:
     def test_order_without_branch_is_pending_and_unassigned(self, client, customer):
-        response = client.post("/orders/", headers=auth_headers(customer), json={"details": "2 duvets"})
+        response = client.post("/orders/", headers=auth_headers(customer), json=order_payload(details="2 duvets"))
         assert response.status_code == 201
         body = response.json()
         assert body["status"] == "pending"
@@ -48,23 +54,45 @@ class TestCreateOrder:
         assert body["customer_id"] == customer.id
 
     def test_direct_order_targets_existing_branch(self, client, customer, branch_a):
-        response = client.post(
-            "/orders/", headers=auth_headers(customer), json={"details": "Suits", "branch_id": branch_a.id}
-        )
+        response = client.post("/orders/", headers=auth_headers(customer), json=order_payload(branch_id=branch_a.id))
         assert response.status_code == 201
         assert response.json()["branch"]["branch_name"] == "Alpha"
 
     def test_unknown_branch_is_rejected(self, client, customer):
-        response = client.post("/orders/", headers=auth_headers(customer), json={"details": "Suits", "branch_id": 999})
+        response = client.post("/orders/", headers=auth_headers(customer), json=order_payload(branch_id=999))
         assert response.status_code == 404
 
     @pytest.mark.parametrize("details", ["", "  ", "x" * 1001])
     def test_details_are_validated(self, client, customer, details):
-        response = client.post("/orders/", headers=auth_headers(customer), json={"details": details})
+        response = client.post("/orders/", headers=auth_headers(customer), json=order_payload(details=details))
         assert response.status_code == 422
 
+    @pytest.mark.parametrize(
+        "pickup",
+        [
+            {"pickup_latitude": 90.5},
+            {"pickup_longitude": -181},
+            {"pickup_latitude": None},
+            {"pickup_address": ""},
+        ],
+    )
+    def test_pickup_location_is_required_and_validated(self, client, customer, pickup):
+        response = client.post("/orders/", headers=auth_headers(customer), json=order_payload(**pickup))
+        assert response.status_code == 422
+
+    def test_non_finite_coordinates_in_json_body_are_rejected(self, client, customer):
+        raw = '{"details": "Shirts", "pickup_address": "Home", "pickup_latitude": NaN, "pickup_longitude": 50}'
+        response = client.post(
+            "/orders/", headers={**auth_headers(customer), "Content-Type": "application/json"}, content=raw
+        )
+        assert response.status_code == 422
+
+    def test_pickup_location_is_stored(self, client, customer):
+        body = client.post("/orders/", headers=auth_headers(customer), json=order_payload()).json()
+        assert (body["pickup_latitude"], body["pickup_longitude"]) == ORIGIN
+
     def test_only_customers_create_orders(self, client, manager_a):
-        response = client.post("/orders/", headers=auth_headers(manager_a), json={"details": "Shirts"})
+        response = client.post("/orders/", headers=auth_headers(manager_a), json=order_payload())
         assert response.status_code == 403
 
 
@@ -94,6 +122,10 @@ class TestVisibility:
     def test_manager_without_branch_is_forbidden(self, client, db):
         unassigned = make_user(db, UserRole.MANAGER)
         assert client.get("/orders/available", headers=auth_headers(unassigned)).status_code == 403
+
+    @pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 101}, {"page": 0}, {"page": "two"}])
+    def test_invalid_pagination_is_rejected(self, client, customer, params):
+        assert client.get("/orders/", headers=auth_headers(customer), params=params).status_code == 422
 
     def test_admin_sees_all_orders(self, client, db, customer, branch_a):
         orders = {make_order(db, customer).id, make_order(db, customer, branch_a).id}
