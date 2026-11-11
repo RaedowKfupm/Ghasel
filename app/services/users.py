@@ -1,49 +1,47 @@
-from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.enums import UserRole
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.CustomerProfiles import CustomerProfile
 from app.models.Users import User
-from app.schemas.laundry import Pagination
+from app.schemas.pagination import Pagination
 from app.schemas.users import UpdateUser
+
+REQUIRED_USER_FIELDS = ("name", "email")
+CUSTOMER_PROFILE_FIELDS = ("phone", "address")
 
 
 def _user_profile_data(user: User) -> dict:
-    customer_profile = user.customer_profile
+    profile = user.customer_profile
     return {
         "id": user.id,
         "name": user.name,
         "email": user.email,
         "role": user.role,
-        "phone": customer_profile.phone if customer_profile is not None else None,
-        "address": customer_profile.address if customer_profile is not None else None,
+        "phone": profile.phone if profile is not None else None,
+        "address": profile.address if profile is not None else None,
         "laundry_id": user.laundry_id,
         "laundry_branch_id": user.laundry_branch_id,
     }
 
 
 def list_users(pagination: Pagination, db: Session) -> list[dict]:
-    users = (
-        db.query(User)
+    users = db.scalars(
+        select(User)
         .options(joinedload(User.customer_profile))
         .order_by(User.id)
-        .offset((pagination.page - 1) * pagination.limit)
+        .offset(pagination.offset)
         .limit(pagination.limit)
-        .all()
     )
     return [_user_profile_data(user) for user in users]
 
 
 def get_user(user_id: int, db: Session) -> dict:
-    user = (
-        db.query(User)
-        .options(joinedload(User.customer_profile))
-        .filter(User.id == user_id)
-        .first()
-    )
+    user = db.get(User, user_id, options=[joinedload(User.customer_profile)])
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise NotFoundError("User not found")
     return _user_profile_data(user)
 
 
@@ -51,46 +49,35 @@ def get_current_user_profile(user: User) -> dict:
     return _user_profile_data(user)
 
 
-def update_current_user_profile(user: User, user_data: UpdateUser, db: Session) -> None:
+def _apply_customer_profile_changes(user: User, changes: dict, db: Session) -> None:
+    if user.role != UserRole.CUSTOMER:
+        raise ValidationError("Phone and address can only be set on customer profiles")
+
+    profile = user.customer_profile
+    if profile is None:
+        if not changes.get("phone"):
+            raise ValidationError("A phone number is required to create a customer profile")
+        profile = CustomerProfile(id=user.id, phone=changes["phone"])
+        db.add(profile)
+    elif "phone" in changes and not changes["phone"]:
+        raise ValidationError("Phone cannot be empty")
+
+    for field, value in changes.items():
+        setattr(profile, field, value)
+
+
+def update_current_user_profile(user: User, user_data: UpdateUser, db: Session) -> dict:
     changes = user_data.model_dump(exclude_unset=True)
-    if not changes:
-        return
 
-    for required_value in ("name", "email"):
-        if required_value in changes and changes[required_value] is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{required_value} cannot be null",
-            )
+    for field in REQUIRED_USER_FIELDS:
+        if field in changes and not changes[field]:
+            raise ValidationError(f"{field} cannot be empty")
 
-    profile_changes = {key: changes[key] for key in ("phone", "address") if key in changes}
-    customer_profile = None
+    profile_changes = {k: changes[k] for k in CUSTOMER_PROFILE_FIELDS if k in changes}
     if profile_changes:
-        if user.role != UserRole.CUSTOMER:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Phone and address updates are currently supported for customer profiles only",
-            )
-        customer_profile = user.customer_profile
-        if customer_profile is None:
-            phone = profile_changes.get("phone")
-            if not phone:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="A phone number is required to create a customer profile",
-                )
-            customer_profile = CustomerProfile(id=user.id, phone=phone)
-            db.add(customer_profile)
-        elif "phone" in profile_changes and profile_changes["phone"] is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Phone cannot be null",
-            )
+        _apply_customer_profile_changes(user, profile_changes, db)
 
-        for field, value in profile_changes.items():
-            setattr(customer_profile, field, value)
-
-    for field in ("name", "email"):
+    for field in REQUIRED_USER_FIELDS:
         if field in changes:
             setattr(user, field, changes[field])
 
@@ -98,7 +85,6 @@ def update_current_user_profile(user: User, user_data: UpdateUser, db: Session) 
         db.commit()
     except IntegrityError as error:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already registered",
-        ) from error
+        raise ConflictError("Email is already registered") from error
+    db.refresh(user)
+    return _user_profile_data(user)

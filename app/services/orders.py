@@ -8,7 +8,7 @@ from app.core.enums import OrderStatus, UserRole
 from app.models.LaundryProfiles import LaundryBranch
 from app.models.Orders import Orders
 from app.models.Users import User
-from app.schemas.laundry import Pagination
+from app.schemas.pagination import Pagination
 from app.schemas.order import OrderCreate
 
 

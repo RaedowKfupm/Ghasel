@@ -1,106 +1,74 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
 
-from app.core.dependencies import OwnedLaundry, require_roles
+from app.core.dependencies import Database, OwnedLaundry, require_roles
 from app.core.enums import UserRole
-from app.db.session import get_db
 from app.models.Users import User
-from app.services.laundry import (
-    approve_laundry_request,
-    create_laundry_branch as create_laundry_branch_service,
-    create_laundry_manager,
-    create_laundry_request,
-    get_laundry as get_laundry_service,
-    list_laundry_branches,
-    list_laundry_requests,
-)
 from app.schemas.laundry import (
     BranchCreate,
     BranchResponse,
     LaundryCreate,
-    LaundryResponse,
-    Pagination,
-)
-from app.schemas.laundry import (
     LaundryRequestResponse,
+    LaundryResponse,
     ManagerCreate,
     ManagerResponse,
 )
-router = APIRouter(
-    prefix="/laundries",
-    tags=["Laundries"],
-)
+from app.schemas.pagination import Pagination
+from app.services import laundry as laundry_service
+
+router = APIRouter(prefix="/laundries", tags=["Laundries"])
+
+admin_only = [Depends(require_roles(UserRole.ADMIN))]
+
 
 @router.post("/", response_model=LaundryRequestResponse, status_code=status.HTTP_201_CREATED)
-def create_laundry(
+def apply_for_laundry(
     laundry_data: LaundryCreate,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.LAUNDRY)),
+    db: Database,
+    owner: Annotated[User, Depends(require_roles(UserRole.LAUNDRY))],
 ):
-    return create_laundry_request(laundry_data, user, db)
+    return laundry_service.create_laundry_request(laundry_data, owner, db)
 
-@router.get("/requests", response_model=list[LaundryRequestResponse])
-def get_laundry_requests(
-    pagination: Annotated[Pagination, Depends()],
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.ADMIN)),
-):
-    return list_laundry_requests(pagination, db)
+
+@router.get("/requests", response_model=list[LaundryRequestResponse], dependencies=admin_only)
+def list_laundry_requests(pagination: Annotated[Pagination, Depends()], db: Database):
+    return laundry_service.list_laundry_requests(pagination, db)
 
 
 @router.post(
     "/requests/{request_id}/approve",
     response_model=LaundryResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=admin_only,
 )
-def approve_laundry(
-    request_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.ADMIN)),
-):
-    return approve_laundry_request(request_id, db)
-
-
-@router.post("/{laundry_id}/branches", response_model=BranchResponse)
-def create_laundry_branch(
-    laundry_id: int,
-    branch_data: BranchCreate,
-    laundry: OwnedLaundry,
-    db: Session = Depends(get_db),
-):
-    return create_laundry_branch_service(branch_data, laundry, db)
-
-
-@router.post("/{laundry_id}/managers", response_model=ManagerResponse, status_code=201)
-def register_manager(
-    laundry_id: int,
-    manager_data: ManagerCreate,
-    laundry: OwnedLaundry,
-    db: Session = Depends(get_db),
-):
-    return create_laundry_manager(laundry, manager_data, db)
+def approve_laundry_request(request_id: int, db: Database):
+    return laundry_service.approve_laundry_request(request_id, db)
 
 
 @router.get("/{laundry_id}", response_model=LaundryResponse)
-def get_laundry(laundry_id: int, db: Session = Depends(get_db)):
-    return get_laundry_service(laundry_id, db)
+def get_laundry(laundry_id: int, db: Database):
+    return laundry_service.get_laundry(laundry_id, db)
 
 
 @router.get("/{laundry_id}/branches", response_model=list[BranchResponse])
-def get_laundry_branches(
-    laundry_id: int,
-    pagination: Annotated[Pagination, Depends()],
-    db: Session = Depends(get_db),
-):
-    return list_laundry_branches(laundry_id, pagination, db)
+def list_laundry_branches(laundry_id: int, pagination: Annotated[Pagination, Depends()], db: Database):
+    return laundry_service.list_laundry_branches(laundry_id, pagination, db)
 
 
-@router.get("/")
-def get_nearby_laundries(
-    pagination: Annotated[Pagination, Depends()],
-    db: Session = Depends(get_db),
-):
-    pass
+@router.post(
+    "/{laundry_id}/branches",
+    response_model=BranchResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_laundry_branch(branch_data: BranchCreate, laundry: OwnedLaundry, db: Database):
+    return laundry_service.create_laundry_branch(branch_data, laundry, db)
 
+
+@router.post(
+    "/{laundry_id}/managers",
+    response_model=ManagerResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_branch_manager(manager_data: ManagerCreate, laundry: OwnedLaundry, db: Database):
+    return laundry_service.create_laundry_manager(laundry, manager_data, db)

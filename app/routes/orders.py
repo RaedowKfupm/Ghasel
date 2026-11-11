@@ -13,7 +13,7 @@ from app.services.orders import (
     get_customer_order,
     list_orders_for_user,
 )
-from app.schemas.laundry import Pagination
+from app.schemas.pagination import Pagination
 from app.schemas.order import OrderCreate, OrderResponse, OrderStatusUpdate
 
 router = APIRouter(

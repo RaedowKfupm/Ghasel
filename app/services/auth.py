@@ -1,42 +1,44 @@
-from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, insert
-from app.db.session import get_db
-from app.core.dependencies import current_user
+
 from app.core.enums import UserRole
-from app.core.security import create_access_token, authenticate_user, hash_password, decode_access_token
-from app.schemas.auth import ResponseUser, UserLogin, UserRegister
+from app.core.exceptions import AuthenticationError, ConflictError, PermissionDeniedError
+from app.core.security import authenticate_user, create_access_token, hash_password
 from app.models.Users import User
+from app.schemas.auth import ResponseUser, UserLogin, UserRegister
+
+PUBLIC_ROLES = frozenset({UserRole.CUSTOMER, UserRole.LAUNDRY})
 
 
-def register_user_service(info: UserRegister, db: Session):
-    if info.role in (UserRole.ADMIN, UserRole.MANAGER):
-            raise HTTPException(
-                status_code=403,
-                detail="Admin and manager accounts cannot be registered publicly",
-            )
-    q = db.scalar(select(User).where(User.email== info.email))
-    if q: 
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    info.password = hash_password(info.password)
-    user_data = info.model_dump()
-    db.execute(insert(User).values(password_hash=user_data.pop("password"), **user_data))
-    db.commit()
-    jwt_token = create_access_token({"sub": str(db.scalar(select(User.id).where(User.email== info.email)))})
-    return ResponseUser(access_token=jwt_token, token_type="Bearer", **user_data)
-
-
-def login_user_service(info: UserLogin, db: Session):
-   user = authenticate_user(info.email, info.password, db)
-   if user is None:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-
-   token = create_access_token({"sub": str(user.id)})
-   return ResponseUser(
-    access_token=token,
-    token_type="Bearer",
-    name=user.name,
-    email=user.email,
-    role=user.role,
+def _session_for(user: User) -> ResponseUser:
+    return ResponseUser(
+        access_token=create_access_token({"sub": str(user.id)}),
+        token_type="Bearer",
+        name=user.name,
+        email=user.email,
+        role=user.role,
     )
+
+
+def register_user_service(info: UserRegister, db: Session) -> ResponseUser:
+    if info.role not in PUBLIC_ROLES:
+        raise PermissionDeniedError("Admin and manager accounts cannot be registered publicly")
+    if db.scalar(select(User.id).where(User.email == info.email)) is not None:
+        raise ConflictError("Email already registered")
+
+    user = User(
+        name=info.name,
+        email=info.email,
+        password_hash=hash_password(info.password),
+        role=info.role,
+    )
+    db.add(user)
+    db.commit()
+    return _session_for(user)
+
+
+def login_user_service(info: UserLogin, db: Session) -> ResponseUser:
+    user = authenticate_user(info.email, info.password, db)
+    if user is None:
+        raise AuthenticationError("Invalid email or password")
+    return _session_for(user)
