@@ -163,7 +163,7 @@ function renderDashboard() {
       <div class="section-head"><h2>Quick actions</h2></div>
       <div class="stats-grid">
         ${quickCard("⌕","Find laundry","Browse a company and its branches","laundries")}
-        ${quickCard("+","Create order","Select a branch first","laundries")}
+        ${quickCard("+","Request pickup","Let branches compete for your order",null)}
         ${quickCard("▤","Track orders","See current order states","orders")}
         ${quickCard("⚙","Account","Update your information","profile")}
       </div>`;
@@ -197,7 +197,8 @@ function renderDashboard() {
 }
 
 function quickCard(icon, title, text, page) {
-  return `<button class="stat-card" style="text-align:left;border:1px solid var(--border);cursor:pointer" onclick="showPage('${page}')">
+  const action = page ? `showPage('${page}')` : `openCreateOrder(null, 'Marketplace request')`;
+  return `<button class="stat-card" style="text-align:left;border:1px solid var(--border);cursor:pointer" onclick="${action}">
     <strong style="font-size:1.25rem">${icon} ${title}</strong><span>${text}</span>
   </button>`;
 }
@@ -216,27 +217,18 @@ async function loadOrders() {
     } catch (e) { root.innerHTML = errorBox(e.message); }
   } else if (role === "manager") {
     try {
-      const orders = await api("/orders/?page=1&limit=50");
+      const [available, assigned] = await Promise.all([
+        api("/orders/available?page=1&limit=50"),
+        api("/orders/?page=1&limit=50"),
+      ]);
+      const active = assigned.filter(o => !["pending","completed","cancelled"].includes(o.status));
       root.innerHTML = `
-        <div class="section-head"><h2>Open and branch orders</h2><button class="btn btn-secondary" id="refreshManagerOrders">Refresh</button></div>
-        <label>Filter orders<input id="managerOrderFilter" type="search" placeholder="Order ID or details" /></label>
-        <div id="managerOrderList" class="list" style="margin-top:14px"></div>`;
-      const renderManagerOrders = () => {
-        const query = $("#managerOrderFilter").value.trim().toLowerCase();
-        const visibleOrders = orders.filter(order =>
-          String(order.id).includes(query) || order.details.toLowerCase().includes(query)
-        );
-        $("#managerOrderList").innerHTML = visibleOrders.length
-          ? visibleOrders.map(managerOrderCard).join("")
-          : empty("No matching orders", "Try another search or refresh the list.");
-      };
-      $("#managerOrderFilter").addEventListener("input", renderManagerOrders);
+        <div class="section-head"><h2>Available to accept</h2><button class="btn btn-secondary" id="refreshManagerOrders">Refresh</button></div>
+        <div class="list">${available.length ? available.map(managerOrderCard).join("") : empty("Nothing to accept","New marketplace and direct requests will appear here.")}</div>
+        <div class="section-head"><h2>In progress at your branch</h2></div>
+        <div class="list">${active.length ? active.map(managerOrderCard).join("") : empty("No active orders","Accepted orders you are working on appear here.")}</div>`;
       $("#refreshManagerOrders").addEventListener("click", loadOrders);
-      $("#managerOrderList").addEventListener("click", event => {
-        const button = event.target.closest("[data-order-id]");
-        if (button) updateManagerOrder(Number(button.dataset.orderId), button.dataset.nextStatus);
-      });
-      renderManagerOrders();
+      root.onclick = onManagerAction;
     } catch (error) {
       root.innerHTML = errorBox(error.message);
     }
@@ -245,41 +237,66 @@ async function loadOrders() {
   }
 }
 
+const ORDER_FLOW = ["pending","accepted","delivering","completed"];
+const NEXT_STATUS = { accepted: "delivering", delivering: "completed" };
+const NEXT_LABEL = { delivering: "Start delivery", completed: "Mark completed" };
+
 function orderCard(o) {
-  const statuses = ["pending","accepted","delivering","completed"];
+  const statuses = ORDER_FLOW;
   const idx = statuses.indexOf(o.status);
   return `<article class="order-card">
     <div class="row">
       <div>
         <div class="row-start"><strong>Order #${o.id}</strong>${badge(o.status)}</div>
-        <div class="meta"><span>${o.branch_id ? `Branch #${o.branch_id}` : "Waiting for a branch"}</span><span>${fmtDate(o.created_at)}</span></div>
+        <div class="meta"><span>${o.branch ? escapeHtml(o.branch.branch_name || o.branch.laundry_name) : "Waiting for a branch"}</span><span>${fmtDate(o.created_at)}</span></div>
       </div>
-      <button class="btn btn-secondary" onclick="openOrder(${o.id})">Details</button>
+      <div class="row-start">
+        ${["pending","accepted"].includes(o.status) ? `<button class="btn btn-secondary" onclick="cancelOrder(${o.id})">Cancel</button>` : ""}
+        <button class="btn btn-secondary" onclick="openOrder(${o.id})">Details</button>
+      </div>
     </div>
     <p style="margin:16px 0 0">${escapeHtml(o.details)}</p>
-    ${o.status === "open" ? `<p class="muted" style="margin:12px 0 0">Branch operators can see and claim this request.</p>` : `<div class="timeline">${statuses.map((s,i)=>`<div class="timeline-step ${i<=idx?"done":""}">${s}</div>`).join("")}</div>`}
+    ${o.status === "cancelled" ? `<p class="muted" style="margin:12px 0 0">This order was cancelled.</p>` : `<div class="timeline">${statuses.map((s,i)=>`<div class="timeline-step ${i<=idx?"done":""}">${s}</div>`).join("")}</div>`}
   </article>`;
 }
 
 function managerOrderCard(order) {
-  const nextStatus = {
-    open: "accepted",
-    pending: "accepted",
-    accepted: "delivering",
-    delivering: "completed",
-  }[order.status];
-  const actionLabel = {
-    accepted: "Accept order",
-    delivering: "Start delivery",
-    completed: "Complete order",
-  }[nextStatus];
+  const actions = [];
+  if (order.status === "pending") actions.push(`<button class="btn btn-primary" data-action="accept" data-order-id="${order.id}">Accept order</button>`);
+  const next = NEXT_STATUS[order.status];
+  if (next) actions.push(`<button class="btn btn-primary" data-action="advance" data-next-status="${next}" data-order-id="${order.id}">${NEXT_LABEL[next]}</button>`);
+  if (order.status === "accepted") actions.push(`<button class="btn btn-secondary" data-action="cancel" data-order-id="${order.id}">Cancel</button>`);
   return `<article class="order-card">
     <div class="row"><div><div class="row-start"><strong>Order #${order.id}</strong>${badge(order.status)}</div>
-      <div class="meta"><span>${order.branch_id ? `Branch #${order.branch_id}` : "Open to branches"}</span><span>${fmtDate(order.created_at)}</span></div></div>
-      ${nextStatus ? `<button class="btn btn-primary" data-order-id="${order.id}" data-next-status="${nextStatus}">${actionLabel}</button>` : ""}
+      <div class="meta"><span>${order.branch_id ? "Requested from your branch" : "Marketplace request"}</span><span>${fmtDate(order.created_at)}</span></div></div>
+      <div class="row-start">${actions.join("")}</div>
     </div>
     <p style="margin:16px 0 0">${escapeHtml(order.details)}</p>
   </article>`;
+}
+
+async function onManagerAction(event) {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+  const id = Number(button.dataset.orderId);
+  const requests = {
+    accept: () => api(`/orders/${id}/accept`, { method: "POST" }),
+    cancel: () => api(`/orders/${id}/cancel`, { method: "POST" }),
+    advance: () => api(`/orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: button.dataset.nextStatus }) }),
+  };
+  button.disabled = true;
+  try {
+    const order = await requests[button.dataset.action]();
+    toast(`Order #${id} is now ${order.status}`);
+  } catch (e) { toast(e.message, "error"); }
+  await loadOrders();
+}
+
+async function cancelOrder(id) {
+  if (!confirm(`Cancel order #${id}?`)) return;
+  try { await api(`/orders/${id}/cancel`, { method: "POST" }); toast("Order cancelled"); }
+  catch (e) { toast(e.message, "error"); }
+  await loadOrders();
 }
 
 async function openOrder(id) {
@@ -290,18 +307,10 @@ async function openOrder(id) {
       <div class="row">${badge(o.status)}<span class="muted">${fmtDate(o.created_at)}</span></div>
       <p style="margin-top:20px">${escapeHtml(o.details)}</p>
       <div class="detail-grid">
-        <div class="detail"><span>Branch</span><strong>#${o.branch_id}</strong></div>
+        <div class="detail"><span>Branch</span><strong>${o.branch ? escapeHtml(o.branch.branch_name || o.branch.laundry_name) : "Not assigned yet"}</strong></div>
         <div class="detail"><span>Accepted</span><strong>${fmtDate(o.accepted_at)}</strong></div>
         <div class="detail"><span>Completed</span><strong>${fmtDate(o.completed_at)}</strong></div>
       </div>`);
-  } catch(e) { toast(e.message,"error"); }
-}
-
-async function updateManagerOrder(id, status) {
-  try {
-    await api(`/orders/${id}/status`, { method:"PATCH", body:JSON.stringify({status}) });
-    toast(`Order #${id} moved to ${status}`);
-    await loadOrders();
   } catch(e) { toast(e.message,"error"); }
 }
 
@@ -344,7 +353,7 @@ function openCreateOrder(branchId, branchName) {
     <form id="createOrderForm" class="stack">
       <input type="hidden" id="createOrderBranch" value="${branchId ?? ""}" />
       <label>Laundry details<textarea id="createOrderDetails" required placeholder="Example: 3 shirts, 2 trousers. Wash and iron."></textarea></label>
-      <div class="code-note">${branchId ? "This order will go directly to the selected branch." : "All branch operators can see and claim this open request in V1; nearby matching comes later."}</div>
+      <div class="code-note">${branchId ? "This order will go directly to the selected branch." : "Your request goes to the marketplace, where laundry branches can accept it."}</div>
       <button class="btn btn-primary" type="submit">Create order</button>
     </form>`);
   $("#createOrderForm").addEventListener("submit", createOrder);
@@ -518,6 +527,7 @@ function closeModal() { $("#modalBackdrop").classList.add("hidden"); $("#modal")
 window.closeModal = closeModal;
 window.showPage = showPage;
 window.openOrder = openOrder;
+window.cancelOrder = cancelOrder;
 window.openCreateOrder = openCreateOrder;
 window.openBranchForm = openBranchForm;
 window.openManagerForm = openManagerForm;
