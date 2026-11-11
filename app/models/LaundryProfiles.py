@@ -30,6 +30,10 @@ class LaundryBranch(Base):
     operators = relationship("User", back_populates="laundry_branch", foreign_keys="User.laundry_branch_id")
     orders = relationship("Orders", back_populates="branch")
 
+    @property
+    def laundry_name(self) -> str:
+        return self.laundry.name
+
 
 class LaundryRequest(Base):
     __tablename__ = "laundry_requests"
