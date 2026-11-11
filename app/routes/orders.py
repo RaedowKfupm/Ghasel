@@ -1,66 +1,57 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.orm import Session
 
-from app.core.dependencies import require_roles
+from app.core.dependencies import Database, Page, require_roles
 from app.core.enums import UserRole
-from app.db.session import get_db
 from app.models.Users import User
-from app.services.orders import (
-    create_customer_order,
-    dispatch_order_status_transition,
-    get_customer_order,
-    list_orders_for_user,
+from app.schemas.order import (
+    AvailableOrderResponse,
+    OrderCreate,
+    OrderDetailResponse,
+    OrderResponse,
+    OrderStatusUpdate,
 )
-from app.schemas.laundry import Pagination
-from app.schemas.order import OrderCreate, OrderResponse, OrderStatusUpdate
+from app.services import orders as order_service
 
-router = APIRouter(
-    prefix="/orders",
-    tags=["Orders"],
-)
+router = APIRouter(prefix="/orders", tags=["Orders"])
 
-
-@router.post(
-    "/",
-    response_model=OrderResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-#user
-def create_order(
-    order_data: OrderCreate,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.CUSTOMER)),
-):
-    return create_customer_order(order_data, user, db)
+Customer = Annotated[User, Depends(require_roles(UserRole.CUSTOMER))]
+Manager = Annotated[User, Depends(require_roles(UserRole.MANAGER))]
+OrderParticipant = Annotated[User, Depends(require_roles(UserRole.CUSTOMER, UserRole.MANAGER))]
+OrderViewer = Annotated[User, Depends(require_roles(UserRole.CUSTOMER, UserRole.MANAGER, UserRole.ADMIN))]
 
 
-@router.get("/{order_id}", response_model=OrderResponse, status_code=status.HTTP_200_OK)
-def get_order(
-    order_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.CUSTOMER)),
-):
-    return get_customer_order(order_id, user, db)
+@router.post("/", response_model=OrderDetailResponse, status_code=status.HTTP_201_CREATED)
+def create_order(order_data: OrderCreate, customer: Customer, db: Database):
+    return order_service.create_order(order_data, customer, db)
 
 
-@router.get("/", response_model=list[OrderResponse], status_code=status.HTTP_200_OK)
-def list_orders(
-    pagination: Annotated[Pagination, Depends()],
-    db: Session = Depends(get_db),
-    user: User = Depends(
-        require_roles(UserRole.CUSTOMER, UserRole.MANAGER, UserRole.ADMIN)
-    ),
-):
-    return list_orders_for_user(pagination, user, db)
+@router.get("/", response_model=list[OrderResponse])
+def list_orders(pagination: Page, user: OrderViewer, db: Database):
+    return order_service.list_orders(pagination, user, db)
 
-#laundryManager
-@router.patch("/{order_id}/status", status_code=status.HTTP_204_NO_CONTENT)
-def update_order_status(
-    order_id: int,
-    status_data: OrderStatusUpdate,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(UserRole.MANAGER)),
-):
-    dispatch_order_status_transition(order_id, status_data.status, user, db)
+
+@router.get("/available", response_model=list[AvailableOrderResponse])
+def list_available_orders(pagination: Page, manager: Manager, db: Database):
+    return order_service.list_available_orders(pagination, manager, db)
+
+
+@router.get("/{order_id}", response_model=OrderDetailResponse)
+def get_order(order_id: int, user: OrderViewer, db: Database):
+    return order_service.get_order(order_id, user, db)
+
+
+@router.post("/{order_id}/accept", response_model=OrderDetailResponse)
+def accept_order(order_id: int, manager: Manager, db: Database):
+    return order_service.accept_order(order_id, manager, db)
+
+
+@router.post("/{order_id}/cancel", response_model=OrderDetailResponse)
+def cancel_order(order_id: int, user: OrderParticipant, db: Database):
+    return order_service.cancel_order(order_id, user, db)
+
+
+@router.patch("/{order_id}/status", response_model=OrderDetailResponse)
+def advance_order_status(order_id: int, status_data: OrderStatusUpdate, manager: Manager, db: Database):
+    return order_service.advance_order_status(order_id, status_data.status, manager, db)

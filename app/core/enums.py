@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class UserRole(str, Enum):
     CUSTOMER = "customer"
     LAUNDRY = "laundry"
@@ -8,9 +9,11 @@ class UserRole(str, Enum):
 
 
 class OrderStatus(str, Enum):
-    OPEN = "open"
     PENDING = "pending"
     ACCEPTED = "accepted"
+    PICKED_UP = "picked_up"
+    CLEANING = "cleaning"
+    READY = "ready"
     DELIVERING = "delivering"
     COMPLETED = "completed"
     CANCELLED = "cancelled"

@@ -1,43 +1,34 @@
-from datetime import datetime
-
-from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import LaundryRequestStatus, UserRole
+from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
-from app.models.LaundryProfiles import (
-    LaundryBranch,
-    LaundryProfile,
-    LaundryRequest,
-)
+from app.models.LaundryProfiles import LaundryBranch, LaundryProfile, LaundryRequest
 from app.models.Users import User
-from app.schemas.laundry import BranchCreate, LaundryCreate, ManagerCreate, Pagination
+from app.schemas.branch import BranchCreate, RatedBranchResponse
+from app.schemas.laundry import LaundryCreate, ManagerCreate
+from app.schemas.pagination import Pagination
+from app.services.branches import list_rated_branches
 
 
-def create_laundry_request(
-    request_data: LaundryCreate,
-    owner: User,
-    db: Session,
-) -> LaundryRequest:
-    existing_request = (
-        db.query(LaundryRequest)
-        .filter(
+def create_laundry_request(request_data: LaundryCreate, owner: User, db: Session) -> LaundryRequest:
+    if owner.laundry_id is not None:
+        raise ConflictError("You already own an approved laundry company")
+
+    has_pending_request = db.scalar(
+        select(LaundryRequest.id).where(
             LaundryRequest.owner_id == owner.id,
             LaundryRequest.status == LaundryRequestStatus.PENDING,
         )
-        .first()
     )
-    if existing_request is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="You already have a pending laundry request",
-        )
+    if has_pending_request is not None:
+        raise ConflictError("You already have a pending laundry request")
 
     laundry_request = LaundryRequest(
         owner_id=owner.id,
         company_name=request_data.company_name,
         status=LaundryRequestStatus.PENDING,
-        created_at=datetime.utcnow(),
     )
     db.add(laundry_request)
     db.commit()
@@ -45,121 +36,83 @@ def create_laundry_request(
     return laundry_request
 
 
+def get_latest_request(owner: User, db: Session) -> LaundryRequest | None:
+    return db.scalar(
+        select(LaundryRequest)
+        .where(LaundryRequest.owner_id == owner.id)
+        .order_by(LaundryRequest.created_at.desc(), LaundryRequest.id.desc())
+        .limit(1)
+    )
+
+
 def list_laundry_requests(pagination: Pagination, db: Session) -> list[LaundryRequest]:
-    return (
-        db.query(LaundryRequest)
-        .order_by(LaundryRequest.created_at.desc())
-        .offset((pagination.page - 1) * pagination.limit)
-        .limit(pagination.limit)
-        .all()
+    return list(
+        db.scalars(
+            select(LaundryRequest)
+            .order_by(LaundryRequest.created_at.desc(), LaundryRequest.id.desc())
+            .offset(pagination.offset)
+            .limit(pagination.limit)
+        )
     )
 
 
-def get_laundry(laundry_id: int, db: Session) -> dict:
-    result = (
-        db.query(LaundryProfile, LaundryRequest.company_name)
-        .outerjoin(LaundryRequest, LaundryRequest.laundry_id == LaundryProfile.id)
-        .filter(LaundryProfile.id == laundry_id)
-        .first()
-    )
-    if result is None:
-        raise HTTPException(status_code=404, detail="Laundry not found")
-
-    laundry, company_name = result
-    return {
-        "id": laundry.id,
-        "company_name": company_name,
-        "created_at": laundry.created_at,
-    }
+def get_laundry(laundry_id: int, db: Session) -> LaundryProfile:
+    laundry = db.get(LaundryProfile, laundry_id)
+    if laundry is None:
+        raise NotFoundError("Laundry not found")
+    return laundry
 
 
-def list_laundry_branches(
-    laundry_id: int,
-    pagination: Pagination,
-    db: Session,
-) -> list[LaundryBranch]:
-    laundry_exists = db.query(LaundryProfile.id).filter(LaundryProfile.id == laundry_id).first()
-    if laundry_exists is None:
-        raise HTTPException(status_code=404, detail="Laundry not found")
-
-    return (
-        db.query(LaundryBranch)
-        .options(selectinload(LaundryBranch.operators))
-        .filter(LaundryBranch.laundry_id == laundry_id)
-        .order_by(LaundryBranch.id)
-        .offset((pagination.page - 1) * pagination.limit)
-        .limit(pagination.limit)
-        .all()
-    )
+def list_laundry_branches(laundry_id: int, pagination: Pagination, db: Session) -> list[RatedBranchResponse]:
+    get_laundry(laundry_id, db)
+    return list_rated_branches(laundry_id, pagination, db)
 
 
 def approve_laundry_request(request_id: int, db: Session) -> LaundryProfile:
-    laundry_request = (
-        db.query(LaundryRequest)
-        .filter(LaundryRequest.id == request_id)
-        .with_for_update()
-        .first()
+    # Lock the request row so two admins cannot approve it twice.
+    laundry_request = db.scalar(
+        select(LaundryRequest).where(LaundryRequest.id == request_id).with_for_update()
     )
     if laundry_request is None:
-        raise HTTPException(status_code=404, detail="Laundry request not found")
+        raise NotFoundError("Laundry request not found")
     if laundry_request.status != LaundryRequestStatus.PENDING:
-        raise HTTPException(status_code=409, detail="Laundry request has already been reviewed")
+        raise ConflictError("Laundry request has already been reviewed")
 
-    owner = db.query(User).filter(User.id == laundry_request.owner_id).first()
+    owner = db.get(User, laundry_request.owner_id)
     if owner is None or owner.laundry_id is not None:
-        raise HTTPException(status_code=409, detail="Owner already has a laundry company")
+        raise ConflictError("Owner already has a laundry company")
 
-    laundry = LaundryProfile(
-        created_at=datetime.utcnow(),
-    )
-    laundry_request.status = LaundryRequestStatus.APPROVED
-    laundry_request.decided_at = datetime.utcnow()
+    laundry = LaundryProfile(name=laundry_request.company_name)
     db.add(laundry)
     db.flush()
-    owner.laundry_id = laundry.id
+
+    laundry_request.status = LaundryRequestStatus.APPROVED
+    laundry_request.decided_at = func.now()
     laundry_request.laundry_id = laundry.id
+    owner.laundry_id = laundry.id
     db.commit()
     db.refresh(laundry)
     return laundry
 
 
-def create_laundry_branch(
-    branch_data: BranchCreate,
-    laundry: LaundryProfile,
-    db: Session,
-) -> LaundryBranch:
-    branch = LaundryBranch(
-        laundry_id=laundry.id,
-        branch_name=branch_data.branch_name,
-        branch_address=branch_data.branch_address,
-        phone=branch_data.phone,
-        created_at=datetime.utcnow(),
-    )
+def create_laundry_branch(branch_data: BranchCreate, laundry: LaundryProfile, db: Session) -> LaundryBranch:
+    branch = LaundryBranch(laundry_id=laundry.id, **branch_data.model_dump())
     db.add(branch)
     db.commit()
-    db.refresh(branch)
-    return branch
+    return db.get(LaundryBranch, branch.id, options=[selectinload(LaundryBranch.laundry)])
 
 
-def create_laundry_manager(
-    laundry: LaundryProfile,
-    manager_data: ManagerCreate,
-    db: Session,
-) -> User:
-    branch = (
-        db.query(LaundryBranch)
-        .filter(
+def create_laundry_manager(laundry: LaundryProfile, manager_data: ManagerCreate, db: Session) -> User:
+    branch = db.scalar(
+        select(LaundryBranch).where(
             LaundryBranch.id == manager_data.branch_id,
             LaundryBranch.laundry_id == laundry.id,
         )
-        .first()
     )
     if branch is None:
-        raise HTTPException(status_code=404, detail="Branch not found for this laundry")
-
-    existing_user = db.query(User).filter(User.email == manager_data.email).first()
-    if existing_user is not None:
-        raise HTTPException(status_code=409, detail="Email is already registered")
+        raise NotFoundError("Branch not found for this laundry")
+    if db.scalar(select(User.id).where(User.email == manager_data.email)) is not None:
+        raise ConflictError("Email is already registered")
 
     manager = User(
         name=manager_data.name,
@@ -172,3 +125,14 @@ def create_laundry_manager(
     db.commit()
     db.refresh(manager)
     return manager
+
+
+def list_laundry_managers(laundry: LaundryProfile, db: Session) -> list[User]:
+    return list(
+        db.scalars(
+            select(User)
+            .join(LaundryBranch, User.laundry_branch_id == LaundryBranch.id)
+            .where(LaundryBranch.laundry_id == laundry.id, User.role == UserRole.MANAGER)
+            .order_by(User.id)
+        )
+    )

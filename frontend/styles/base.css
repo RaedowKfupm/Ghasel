@@ -1,0 +1,148 @@
+/* Design tokens, reset and typography. */
+
+:root {
+  --bg: #f6f3ec;
+  --surface: #ffffff;
+  --surface-muted: #f0ece3;
+  --surface-sunken: #e9e4d9;
+  --ink: #1d1c1a;
+  --ink-soft: #3b3934;
+  --muted: #77736a;
+  --line: #e5e0d5;
+  --line-strong: #d6cfc0;
+
+  --gold: #f5b800;
+  --gold-strong: #dca600;
+  --gold-soft: #fff4cc;
+  --gold-ink: #7a5b00;
+
+  --green: #2f7d57;
+  --green-soft: #e6f2eb;
+  --red: #b4443b;
+  --red-soft: #fbeae8;
+  --blue: #2f6db5;
+  --blue-soft: #e7effa;
+  --violet: #6a4fb0;
+  --violet-soft: #efeafb;
+
+  --radius-sm: 10px;
+  --radius: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+
+  --shadow-sm: 0 1px 2px rgba(29, 28, 26, 0.05);
+  --shadow: 0 10px 30px rgba(29, 28, 26, 0.06);
+  --shadow-lg: 0 24px 60px rgba(29, 28, 26, 0.14);
+
+  --sidebar-width: 248px;
+  --content-max: 1180px;
+  --font: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(1.75rem, 2.6vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+}
+
+h2 {
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+
+h3 {
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+  font-weight: 750;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(245, 184, 0, 0.55);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.eyebrow {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

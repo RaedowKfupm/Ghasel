@@ -3,8 +3,14 @@ uvicorn[standard]==0.23.2
 SQLAlchemy==2.0.54
 alembic==1.12.1
 psycopg[binary]==3.2.13
+GeoAlchemy2==0.21.0
+pydantic==2.13.5
 pydantic-settings==2.0.3
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+email-validator==2.3.0
+PyJWT==2.15.0
+pwdlib[argon2]==0.3.1
+
+# Testing and linting
 pytest==7.4.3
 httpx==0.25.2
+ruff==0.17.4

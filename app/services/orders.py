@@ -1,197 +1,227 @@
-from datetime import datetime
-from collections.abc import Callable
+"""Order use cases: creation, visibility, marketplace acceptance and status changes.
 
-from fastapi import HTTPException, status
-from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
+Every status change is a single conditional ``UPDATE ... WHERE status = <expected>``.
+PostgreSQL row locking serialises concurrent updates to the same row and re-checks
+the WHERE clause after the first writer commits, so only one of several racing
+requests can succeed; the others match zero rows and receive 409 Conflict.
+
+The matching ``order_status_events`` row is inserted in the same transaction, so
+the tracking history can never disagree with the order's current status.
+"""
+
+from sqlalchemy import Float, Select, or_, select, update
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql import ColumnElement, func
 
 from app.core.enums import OrderStatus, UserRole
+from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
+from app.core.order_lifecycle import (
+    ACTION_ONLY_TARGETS,
+    InvalidTransitionError,
+    OrderActor,
+    Transition,
+    get_transition,
+)
+from app.db.spatial import METRES_PER_KM
 from app.models.LaundryProfiles import LaundryBranch
-from app.models.Orders import Orders
+from app.models.Orders import Orders, OrderStatusEvent
+from app.models.Reviews import Review
 from app.models.Users import User
-from app.schemas.laundry import Pagination
-from app.schemas.order import OrderCreate
+from app.schemas.order import AvailableOrderResponse, OrderCreate
+from app.schemas.pagination import Pagination
+
+_ORDER_NOT_FOUND = "Order not found"
 
 
-def get_customer_order(order_id: int, customer: User, db: Session) -> Orders:
-    order = (
-        db.query(Orders)
-        .filter(
-            Orders.id == order_id,
-            Orders.customer_id == customer.id,
-        )
-        .first()
+# --- Queries -----------------------------------------------------------------
+
+
+def _order_query() -> Select:
+    return select(Orders).options(
+        selectinload(Orders.branch).selectinload(LaundryBranch.laundry),
+        selectinload(Orders.review).joinedload(Review.order).joinedload(Orders.customer),
     )
+
+
+def _paginate(query: Select, pagination: Pagination) -> Select:
+    return query.order_by(Orders.created_at.desc(), Orders.id.desc()).offset(pagination.offset).limit(pagination.limit)
+
+
+def _manager_branch_id(manager: User) -> int:
+    if manager.laundry_branch_id is None:
+        raise PermissionDeniedError("No branch is assigned to this manager")
+    return manager.laundry_branch_id
+
+
+def _branch_location(branch_id: int) -> ColumnElement:
+    return select(LaundryBranch.location).where(LaundryBranch.id == branch_id).scalar_subquery()
+
+
+def _within_service_area(branch_id: int) -> ColumnElement[bool]:
+    """The order's pickup point lies inside the branch's service radius (PostGIS, metres)."""
+    service_radius_km = (
+        select(LaundryBranch.service_radius_km).where(LaundryBranch.id == branch_id).scalar_subquery()
+    )
+    return func.ST_DWithin(Orders.pickup_location, _branch_location(branch_id), service_radius_km * METRES_PER_KM)
+
+
+def _available_to_branch(branch_id: int) -> ColumnElement[bool]:
+    """Pending orders a branch may accept: direct requests to it, and nearby marketplace orders.
+
+    Branches without a location see no marketplace orders (ST_DWithin with NULL is not true).
+    """
+    return (Orders.status == OrderStatus.PENDING) & or_(
+        Orders.branch_id == branch_id,
+        Orders.branch_id.is_(None) & _within_service_area(branch_id),
+    )
+
+
+def _visible_to(user: User) -> ColumnElement[bool] | None:
+    """SQL condition restricting orders to those ``user`` may see (None = unrestricted)."""
+    if user.role == UserRole.ADMIN:
+        return None
+    if user.role == UserRole.CUSTOMER:
+        return Orders.customer_id == user.id
+    if user.role == UserRole.MANAGER:
+        branch_id = _manager_branch_id(user)
+        return or_(Orders.branch_id == branch_id, _available_to_branch(branch_id))
+    raise PermissionDeniedError("Insufficient permissions")
+
+
+def list_orders(pagination: Pagination, user: User, db: Session) -> list[Orders]:
+    """Customers see their orders, managers their branch's orders, admins everything."""
+    query = _order_query()
+    if user.role == UserRole.CUSTOMER:
+        query = query.where(Orders.customer_id == user.id)
+    elif user.role == UserRole.MANAGER:
+        query = query.where(Orders.branch_id == _manager_branch_id(user))
+    elif user.role != UserRole.ADMIN:
+        raise PermissionDeniedError("Insufficient permissions")
+    return list(db.scalars(_paginate(query, pagination)))
+
+
+def list_available_orders(pagination: Pagination, manager: User, db: Session) -> list[AvailableOrderResponse]:
+    """Orders the manager's branch may accept, nearest pickup first."""
+    branch_id = _manager_branch_id(manager)
+    distance_m = func.ST_Distance(Orders.pickup_location, _branch_location(branch_id), type_=Float)
+    rows = db.execute(
+        _order_query()
+        .add_columns(distance_m.label("distance_m"))
+        .where(_available_to_branch(branch_id))
+        .order_by(distance_m.asc().nulls_last(), Orders.created_at.desc(), Orders.id.desc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    ).all()
+    return [
+        AvailableOrderResponse.model_validate(order).model_copy(
+            update={"distance_km": None if distance is None else round(distance / METRES_PER_KM, 3)}
+        )
+        for order, distance in rows
+    ]
+
+
+def get_order(order_id: int, user: User, db: Session) -> Orders:
+    """A single order the user may see, including its status history."""
+    query = (
+        _order_query()
+        .options(selectinload(Orders.events).selectinload(OrderStatusEvent.actor))
+        .where(Orders.id == order_id)
+    )
+    visibility = _visible_to(user)
+    if visibility is not None:
+        query = query.where(visibility)
+    order = db.scalar(query)
     if order is None:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise NotFoundError(_ORDER_NOT_FOUND)
     return order
 
 
-def list_orders_for_user(
-    pagination: Pagination,
-    user: User,
-    db: Session,
-) -> list[Orders]:
-    query = db.query(Orders)
-    if user.role == UserRole.CUSTOMER:
-        query = query.filter(Orders.customer_id == user.id)
-    elif user.role == UserRole.MANAGER:
-        if user.laundry_branch_id is None:
-            raise HTTPException(status_code=403, detail="No branch is assigned to this manager")
-        query = query.filter(
-            or_(
-                and_(Orders.status == OrderStatus.OPEN, Orders.branch_id.is_(None)),
-                Orders.branch_id == user.laundry_branch_id,
-            )
-        )
-    elif user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-
-    return (
-        query.order_by(Orders.created_at.desc())
-        .offset((pagination.page - 1) * pagination.limit)
-        .limit(pagination.limit)
-        .all()
-    )
+# --- Commands ----------------------------------------------------------------
 
 
-def create_customer_order(order_data: OrderCreate, customer: User, db: Session) -> Orders:
-    initial_status = OrderStatus.OPEN
-    if order_data.branch_id is not None:
-        branch_exists = (
-            db.query(LaundryBranch.id)
-            .filter(LaundryBranch.id == order_data.branch_id)
-            .first()
-        )
-        if branch_exists is None:
-            raise HTTPException(status_code=404, detail="Branch not found")
-        initial_status = OrderStatus.PENDING
+def create_order(order_data: OrderCreate, customer: User, db: Session) -> Orders:
+    if order_data.branch_id is not None and db.get(LaundryBranch, order_data.branch_id) is None:
+        raise NotFoundError("Branch not found")
 
-    order = Orders(
-        customer_id=customer.id,
-        branch_id=order_data.branch_id,
-        details=order_data.details,
-        status=initial_status,
-        created_at=datetime.utcnow(),
-    )
+    order = Orders(customer_id=customer.id, status=OrderStatus.PENDING, **order_data.model_dump())
+    order.events.append(OrderStatusEvent(status=OrderStatus.PENDING, actor_id=customer.id))
     db.add(order)
     db.commit()
-    db.refresh(order)
-    return order
+    return get_order(order.id, customer, db)
 
 
-def dispatch_order_status_transition(
-    order_id: int,
-    new_status: OrderStatus,
-    manager: User,
-    db: Session,
-) -> None:
-    branch_id = manager.laundry_branch_id
-    if branch_id is None:
-        raise HTTPException(status_code=403, detail="No branch is assigned to this manager")
-
-    order = (
-        db.query(Orders.status, Orders.branch_id)
-        .filter(Orders.id == order_id)
-        .first()
-    )
-    if order is None:
-        raise HTTPException(status_code=404, detail="Order not found")
-    if order.branch_id is not None and order.branch_id != branch_id:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    handler = ORDER_TRANSITIONS.get((order.status, new_status))
-    if handler is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Transition from {order.status.value} to {new_status.value} is not allowed",
-        )
-    handler(order_id, branch_id, db)
-
-
-def _apply_order_transition(
-    order_id: int,
-    branch_id: int,
-    current_status: OrderStatus,
-    target_status: OrderStatus,
+def _apply_transition(
+    order: Orders,
+    transition: Transition,
+    actor: User,
     db: Session,
     *,
-    assign_branch: bool = False,
-    timestamp_field: str | None = None,
+    guards: tuple[ColumnElement[bool], ...] = (),
+    values: dict | None = None,
 ) -> None:
-    conditions = [Orders.id == order_id, Orders.status == current_status]
-    values = {"status": target_status}
-    if assign_branch:
-        conditions.append(Orders.branch_id.is_(None))
-        values["branch_id"] = branch_id
-    else:
-        conditions.append(Orders.branch_id == branch_id)
-    if timestamp_field is not None:
-        values[timestamp_field] = datetime.utcnow()
+    """Compare-and-set the order's status and record it; fails if anyone changed it first."""
+    changes = {"status": transition.target, **(values or {})}
+    if transition.timestamp_field:
+        changes[transition.timestamp_field] = func.now()
 
-    changed = (
-        db.query(Orders)
-        .filter(*conditions)
-        .update(values, synchronize_session=False)
-    )
-    if changed != 1:
+    updated = db.execute(
+        update(Orders)
+        .where(Orders.id == order.id, Orders.status == transition.source, *guards)
+        .values(**changes)
+        .returning(Orders.id)
+    ).first()
+    if updated is None:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Order status changed concurrently; reload the order and try again",
-        )
+        raise ConflictError("This order was just updated by someone else; reload and try again")
+    db.add(OrderStatusEvent(order_id=order.id, status=transition.target, actor_id=actor.id))
     db.commit()
 
 
-def handle_open_to_accepted(order_id: int, branch_id: int, db: Session) -> None:
-    _apply_order_transition(
-        order_id,
-        branch_id,
-        OrderStatus.OPEN,
-        OrderStatus.ACCEPTED,
+def accept_order(order_id: int, manager: User, db: Session) -> Orders:
+    branch_id = _manager_branch_id(manager)
+    order = get_order(order_id, manager, db)
+    if order.status != OrderStatus.PENDING:
+        raise ConflictError("This order is no longer available")
+
+    transition = get_transition(order.status, OrderStatus.ACCEPTED, OrderActor.BRANCH)
+    _apply_transition(
+        order,
+        transition,
+        manager,
         db,
-        assign_branch=True,
-        timestamp_field="accepted_at",
+        # Re-checked inside the UPDATE so a concurrent acceptance cannot also succeed.
+        guards=(_available_to_branch(branch_id),),
+        values={"branch_id": branch_id},
     )
+    return get_order(order_id, manager, db)
 
 
-def handle_pending_to_accepted(order_id: int, branch_id: int, db: Session) -> None:
-    _apply_order_transition(
-        order_id,
-        branch_id,
-        OrderStatus.PENDING,
-        OrderStatus.ACCEPTED,
-        db,
-        timestamp_field="accepted_at",
-    )
-    # TODO: enqueue assigned-order notifications after the transaction commits.
+def cancel_order(order_id: int, user: User, db: Session) -> Orders:
+    order = get_order(order_id, user, db)
+    if user.role == UserRole.CUSTOMER:
+        actor, guard = OrderActor.CUSTOMER, Orders.customer_id == user.id
+    elif user.role == UserRole.MANAGER:
+        actor, guard = OrderActor.BRANCH, Orders.branch_id == _manager_branch_id(user)
+        if order.branch_id is None:
+            raise NotFoundError(_ORDER_NOT_FOUND)
+    else:
+        raise PermissionDeniedError("Insufficient permissions")
+
+    transition = get_transition(order.status, OrderStatus.CANCELLED, actor)
+    _apply_transition(order, transition, user, db, guards=(guard,))
+    return get_order(order_id, user, db)
 
 
-def handle_accepted_to_delivering(order_id: int, branch_id: int, db: Session) -> None:
-    _apply_order_transition(
-        order_id,
-        branch_id,
-        OrderStatus.ACCEPTED,
-        OrderStatus.DELIVERING,
-        db,
-    )
+def advance_order_status(order_id: int, target: OrderStatus, manager: User, db: Session) -> Orders:
+    """Move an order the branch already owns to its next working status."""
+    if target in ACTION_ONLY_TARGETS:
+        raise InvalidTransitionError(f"Use the dedicated endpoint to mark an order {target.value}")
 
+    branch_id = _manager_branch_id(manager)
+    order = get_order(order_id, manager, db)
+    if order.branch_id != branch_id:
+        raise NotFoundError(_ORDER_NOT_FOUND)
 
-def handle_delivering_to_completed(order_id: int, branch_id: int, db: Session) -> None:
-    _apply_order_transition(
-        order_id,
-        branch_id,
-        OrderStatus.DELIVERING,
-        OrderStatus.COMPLETED,
-        db,
-        timestamp_field="completed_at",
-    )
-
-
-OrderTransitionHandler = Callable[[int, int, Session], None]
-ORDER_TRANSITIONS: dict[tuple[OrderStatus, OrderStatus], OrderTransitionHandler] = {
-    (OrderStatus.OPEN, OrderStatus.ACCEPTED): handle_open_to_accepted,
-    (OrderStatus.PENDING, OrderStatus.ACCEPTED): handle_pending_to_accepted,
-    (OrderStatus.ACCEPTED, OrderStatus.DELIVERING): handle_accepted_to_delivering,
-    (OrderStatus.DELIVERING, OrderStatus.COMPLETED): handle_delivering_to_completed,
-}
+    transition = get_transition(order.status, target, OrderActor.BRANCH)
+    _apply_transition(order, transition, manager, db, guards=(Orders.branch_id == branch_id,))
+    return get_order(order_id, manager, db)

@@ -1,0 +1,54 @@
+"""Domain errors raised by the service layer.
+
+Services describe *what* went wrong; ``register_exception_handlers`` translates
+each error into an HTTP response, so business logic never depends on FastAPI.
+"""
+
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+
+class DomainError(Exception):
+    status_code = status.HTTP_400_BAD_REQUEST
+
+    def __init__(self, detail: str):
+        super().__init__(detail)
+        self.detail = detail
+
+
+class NotFoundError(DomainError):
+    status_code = status.HTTP_404_NOT_FOUND
+
+
+class AuthenticationError(DomainError):
+    status_code = status.HTTP_401_UNAUTHORIZED
+
+
+class PermissionDeniedError(DomainError):
+    status_code = status.HTTP_403_FORBIDDEN
+
+
+class ConflictError(DomainError):
+    """The request is valid but conflicts with the current state of a resource."""
+
+    status_code = status.HTTP_409_CONFLICT
+
+
+class ValidationError(DomainError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+async def _handle_domain_error(_: Request, error: DomainError) -> JSONResponse:
+    return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
+
+
+async def _handle_request_validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
+    # The default handler echoes each rejected input, which fails to serialise for NaN/inf.
+    detail = [{"type": e["type"], "loc": e["loc"], "msg": e["msg"]} for e in error.errors()]
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": detail})
+
+
+def register_exception_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(DomainError, _handle_domain_error)
+    app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
