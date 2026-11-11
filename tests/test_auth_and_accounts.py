@@ -1,5 +1,7 @@
 """Authentication, role authorization and laundry onboarding ownership."""
 
+import pytest
+
 from app.core.enums import UserRole
 from tests.factories import PASSWORD, auth_headers, make_branch, make_laundry, make_user
 
@@ -24,6 +26,14 @@ class TestAuthentication:
     def test_privileged_roles_cannot_self_register(self, client):
         assert register(client, role="admin").status_code == 403
         assert register(client, role="manager").status_code == 403
+
+    @pytest.mark.parametrize(
+        "changes",
+        [{"password": "short"}, {"name": "   "}, {"email": "not-an-email"}, {"role": "superuser"}],
+    )
+    def test_registration_input_is_validated(self, client, changes):
+        body = {"name": "New User", "email": "new@example.com", "password": PASSWORD, "role": "customer", **changes}
+        assert client.post("/auth/register", json=body).status_code == 422
 
     def test_duplicate_email_is_rejected(self, client):
         register(client)
@@ -56,6 +66,11 @@ class TestRoleAuthorization:
         owner = make_user(db, UserRole.LAUNDRY)
         response = client.patch("/users/me", headers=auth_headers(owner), json={"phone": "0555"})
         assert response.status_code == 422
+
+    @pytest.mark.parametrize("changes", [{"phone": "call me"}, {"name": ""}, {"address": "x"}])
+    def test_profile_updates_are_validated(self, client, db, changes):
+        customer = make_user(db)
+        assert client.patch("/users/me", headers=auth_headers(customer), json=changes).status_code == 422
 
     def test_customer_profile_update(self, client, db):
         customer = make_user(db)

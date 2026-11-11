@@ -4,6 +4,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
 from app.core.enums import LaundryRequestStatus
+from app.schemas.fields import Password, PersonName
 
 CompanyName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=120)]
 
@@ -31,9 +32,9 @@ class LaundryResponse(BaseModel):
 
 
 class ManagerCreate(BaseModel):
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    name: PersonName
     email: EmailStr
-    password: Annotated[str, Field(min_length=8, max_length=128)]
+    password: Password
     branch_id: int = Field(gt=0)
 
 

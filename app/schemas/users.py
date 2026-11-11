@@ -1,7 +1,7 @@
-
 from pydantic import BaseModel, EmailStr
 
 from app.core.enums import UserRole
+from app.schemas.fields import Address, PersonName, Phone
 
 
 class GetUser(BaseModel):
@@ -15,9 +15,8 @@ class GetUser(BaseModel):
     laundry_branch_id: int | None = None
 
 
-
 class UpdateUser(BaseModel):
-    name: str | None = None
+    name: PersonName | None = None
     email: EmailStr | None = None
-    phone: str | None = None
-    address: str | None = None
+    phone: Phone | None = None
+    address: Address | None = None
