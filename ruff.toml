@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py312"
+
+[lint]
+# Pyflakes, syntax errors, bugbear and import sorting.
+select = ["F", "E9", "B", "I"]
+
+[lint.isort]
+known-first-party = ["app", "tests", "scripts"]
+known-third-party = ["alembic"]

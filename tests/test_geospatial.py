@@ -48,7 +48,7 @@ class TestNearbySearch:
         assert [b["id"] for b in body] == [near.id, middle.id, far.id]
         distances = [b["distance_km"] for b in body]
         assert distances == sorted(distances)
-        for branch, expected_km in zip(body, (1, 2, 3)):
+        for branch, expected_km in zip(body, (1, 2, 3), strict=True):
             assert branch["distance_km"] == pytest.approx(expected_km, rel=0.01)
 
     def test_distance_matches_independent_great_circle_estimate(self, client, db):

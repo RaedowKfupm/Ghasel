@@ -54,8 +54,8 @@ _INVALID_CREDENTIALS = HTTPException(
 def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Database) -> User:
     try:
         user_id = int(decode_access_token(token)["sub"])
-    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
-        raise _INVALID_CREDENTIALS
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
+        raise _INVALID_CREDENTIALS from error
 
     user = db.get(User, user_id)
     if user is None:

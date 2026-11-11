@@ -45,7 +45,7 @@ def explain(connection: Connection, sql: str) -> tuple[float, str]:
 
 def measure(connection: Connection, sql: str, runs: int) -> tuple[float, str]:
     explain(connection, sql)  # warm the cache so both variants are compared hot
-    timings, plan = zip(*(explain(connection, sql) for _ in range(runs)))
+    timings, plan = zip(*(explain(connection, sql) for _ in range(runs)), strict=True)
     return statistics.median(timings), plan[-1]
 
 

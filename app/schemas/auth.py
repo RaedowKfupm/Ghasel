@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr
+
 from app.core.enums import UserRole
+
 
 class UserRegister(BaseModel):
     name: str

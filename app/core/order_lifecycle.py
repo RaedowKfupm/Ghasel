@@ -55,7 +55,7 @@ TRANSITIONS: dict[tuple[OrderStatus, OrderStatus], Transition] = {
         Transition(OrderStatus.ACCEPTED, OrderStatus.CANCELLED, _EITHER, "cancelled_at"),
         *(
             Transition(source, target, _BRANCH, "completed_at" if target == OrderStatus.COMPLETED else None)
-            for source, target in zip(PROGRESSION, PROGRESSION[1:])
+            for source, target in zip(PROGRESSION, PROGRESSION[1:], strict=False)
         ),
     )
 }

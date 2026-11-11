@@ -12,8 +12,8 @@ Revision ID: 0004
 Revises: 0003
 Create Date: 2026-11-11
 """
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from geoalchemy2 import Geography
 
 revision = "0004"

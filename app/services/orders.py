@@ -10,18 +10,11 @@ the tracking history can never disagree with the order's current status.
 """
 
 from sqlalchemy import Float, Select, or_, select, update
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import ColumnElement, func
 
 from app.core.enums import OrderStatus, UserRole
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
-from app.db.spatial import METRES_PER_KM
-from app.models.LaundryProfiles import LaundryBranch
-from app.models.Orders import OrderStatusEvent, Orders
-from app.models.Reviews import Review
-from app.models.Users import User
-from app.schemas.order import AvailableOrderResponse, OrderCreate
-from app.schemas.pagination import Pagination
 from app.core.order_lifecycle import (
     ACTION_ONLY_TARGETS,
     InvalidTransitionError,
@@ -29,6 +22,13 @@ from app.core.order_lifecycle import (
     Transition,
     get_transition,
 )
+from app.db.spatial import METRES_PER_KM
+from app.models.LaundryProfiles import LaundryBranch
+from app.models.Orders import Orders, OrderStatusEvent
+from app.models.Reviews import Review
+from app.models.Users import User
+from app.schemas.order import AvailableOrderResponse, OrderCreate
+from app.schemas.pagination import Pagination
 
 _ORDER_NOT_FOUND = "Order not found"
 

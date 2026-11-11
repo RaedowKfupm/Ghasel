@@ -100,7 +100,7 @@ class TestRatings:
         return [make_order(db, make_user(db), branch, status=OrderStatus.COMPLETED) for _ in range(count)]
 
     def _review_all(self, client, db, orders, ratings):
-        for order, rating in zip(orders, ratings):
+        for order, rating in zip(orders, ratings, strict=True):
             customer = db.get(User, order.customer_id)
             assert review(client, customer, order, rating=rating).status_code == 201
 

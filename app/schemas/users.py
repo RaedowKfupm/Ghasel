@@ -1,6 +1,8 @@
 
 from pydantic import BaseModel, EmailStr
+
 from app.core.enums import UserRole
+
 
 class GetUser(BaseModel):
     id: int

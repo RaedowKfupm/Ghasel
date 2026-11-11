@@ -108,7 +108,7 @@ def seed(db: Session) -> None:
     # Companies go through the real application -> approval flow.
     owners = [user(db, name, UserRole.LAUNDRY) for name in ("Hassan Owner", "Reem Owner", "Fahad Owner")]
     db.commit()
-    for owner, company in zip(owners, [*COMPANIES, PENDING_COMPANY]):
+    for owner, company in zip(owners, [*COMPANIES, PENDING_COMPANY], strict=True):
         request = laundry_service.create_laundry_request(LaundryCreate(company_name=company), owner, db)
         if company == PENDING_COMPANY:
             continue  # left for the admin to review in the UI
