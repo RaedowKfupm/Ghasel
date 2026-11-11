@@ -138,3 +138,10 @@ class TestRatings:
         review(client, customer, completed_order, rating=4)
         detail = client.get(f"/orders/{completed_order.id}", headers=auth_headers(customer)).json()
         assert detail["review"]["rating"] == 4
+
+    def test_order_listing_shows_which_orders_are_reviewed(self, client, db, customer, branch, completed_order):
+        unreviewed = make_order(db, customer, branch, status=OrderStatus.COMPLETED)
+        review(client, customer, completed_order, rating=5)
+        listed = {o["id"]: o["review"] for o in client.get("/orders/", headers=auth_headers(customer)).json()}
+        assert listed[completed_order.id]["rating"] == 5
+        assert listed[unreviewed.id] is None

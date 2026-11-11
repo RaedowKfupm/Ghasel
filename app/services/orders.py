@@ -10,7 +10,7 @@ the tracking history can never disagree with the order's current status.
 """
 
 from sqlalchemy import Float, Select, or_, select, update
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.sql import ColumnElement, func
 
 from app.core.enums import OrderStatus, UserRole
@@ -18,6 +18,7 @@ from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedEr
 from app.db.spatial import METRES_PER_KM
 from app.models.LaundryProfiles import LaundryBranch
 from app.models.Orders import OrderStatusEvent, Orders
+from app.models.Reviews import Review
 from app.models.Users import User
 from app.schemas.order import AvailableOrderResponse, OrderCreate
 from app.schemas.pagination import Pagination
@@ -36,7 +37,10 @@ _ORDER_NOT_FOUND = "Order not found"
 
 
 def _order_query() -> Select:
-    return select(Orders).options(selectinload(Orders.branch).selectinload(LaundryBranch.laundry))
+    return select(Orders).options(
+        selectinload(Orders.branch).selectinload(LaundryBranch.laundry),
+        selectinload(Orders.review).joinedload(Review.order).joinedload(Orders.customer),
+    )
 
 
 def _paginate(query: Select, pagination: Pagination) -> Select:
@@ -120,10 +124,7 @@ def get_order(order_id: int, user: User, db: Session) -> Orders:
     """A single order the user may see, including its status history."""
     query = (
         _order_query()
-        .options(
-            selectinload(Orders.events).selectinload(OrderStatusEvent.actor),
-            selectinload(Orders.review),
-        )
+        .options(selectinload(Orders.events).selectinload(OrderStatusEvent.actor))
         .where(Orders.id == order_id)
     )
     visibility = _visible_to(user)

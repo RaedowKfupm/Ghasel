@@ -49,6 +49,7 @@ class OrderResponse(BaseModel):
     accepted_at: datetime | None = None
     completed_at: datetime | None = None
     cancelled_at: datetime | None = None
+    review: ReviewResponse | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,7 +70,6 @@ class StatusEventResponse(BaseModel):
 
 class OrderDetailResponse(OrderResponse):
     history: list[StatusEventResponse] = Field(validation_alias="events")
-    review: ReviewResponse | None = None
 
 
 class AvailableOrderResponse(OrderResponse):
