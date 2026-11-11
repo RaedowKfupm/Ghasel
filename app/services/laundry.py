@@ -1,6 +1,5 @@
-from datetime import datetime
-
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import LaundryRequestStatus, UserRole
@@ -37,7 +36,6 @@ def create_laundry_request(
         owner_id=owner.id,
         company_name=request_data.company_name,
         status=LaundryRequestStatus.PENDING,
-        created_at=datetime.utcnow(),
     )
     db.add(laundry_request)
     db.commit()
@@ -55,22 +53,11 @@ def list_laundry_requests(pagination: Pagination, db: Session) -> list[LaundryRe
     )
 
 
-def get_laundry(laundry_id: int, db: Session) -> dict:
-    result = (
-        db.query(LaundryProfile, LaundryRequest.company_name)
-        .outerjoin(LaundryRequest, LaundryRequest.laundry_id == LaundryProfile.id)
-        .filter(LaundryProfile.id == laundry_id)
-        .first()
-    )
-    if result is None:
+def get_laundry(laundry_id: int, db: Session) -> LaundryProfile:
+    laundry = db.get(LaundryProfile, laundry_id)
+    if laundry is None:
         raise HTTPException(status_code=404, detail="Laundry not found")
-
-    laundry, company_name = result
-    return {
-        "id": laundry.id,
-        "company_name": company_name,
-        "created_at": laundry.created_at,
-    }
+    return laundry
 
 
 def list_laundry_branches(
@@ -109,11 +96,9 @@ def approve_laundry_request(request_id: int, db: Session) -> LaundryProfile:
     if owner is None or owner.laundry_id is not None:
         raise HTTPException(status_code=409, detail="Owner already has a laundry company")
 
-    laundry = LaundryProfile(
-        created_at=datetime.utcnow(),
-    )
+    laundry = LaundryProfile(name=laundry_request.company_name)
     laundry_request.status = LaundryRequestStatus.APPROVED
-    laundry_request.decided_at = datetime.utcnow()
+    laundry_request.decided_at = func.now()
     db.add(laundry)
     db.flush()
     owner.laundry_id = laundry.id
@@ -133,7 +118,6 @@ def create_laundry_branch(
         branch_name=branch_data.branch_name,
         branch_address=branch_data.branch_address,
         phone=branch_data.phone,
-        created_at=datetime.utcnow(),
     )
     db.add(branch)
     db.commit()

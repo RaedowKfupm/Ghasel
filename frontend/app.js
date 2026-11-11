@@ -316,7 +316,7 @@ async function loadLaundry(id) {
     root.classList.remove("empty-card");
     root.innerHTML = `
       <div class="row">
-        <div><span class="eyebrow">Laundry #${laundry.id}</span><h2>${escapeHtml(laundry.company_name || "Laundry")}</h2></div>
+        <div><span class="eyebrow">Laundry #${laundry.id}</span><h2>${escapeHtml(laundry.name)}</h2></div>
         <span class="badge approved">${branches.length} branch${branches.length===1?"":"es"}</span>
       </div>
       ${state.user.role === "customer" ? `<div class="section-head"><p class="muted">Prefer an open request?</p><button class="btn btn-secondary" onclick="openCreateOrder(null, 'Open request')">Offer to branches</button></div>` : ""}

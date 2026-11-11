@@ -25,7 +25,7 @@ class LaundryRequestResponse(BaseModel):
 
 class LaundryResponse(BaseModel):
 	id: int
-	company_name: str | None = None
+	name: str
 	created_at: datetime
 
 	model_config = ConfigDict(from_attributes=True)

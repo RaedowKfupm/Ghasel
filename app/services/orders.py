@@ -1,8 +1,7 @@
-from datetime import datetime
 from collections.abc import Callable
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.enums import OrderStatus, UserRole
@@ -72,7 +71,6 @@ def create_customer_order(order_data: OrderCreate, customer: User, db: Session) 
         branch_id=order_data.branch_id,
         details=order_data.details,
         status=initial_status,
-        created_at=datetime.utcnow(),
     )
     db.add(order)
     db.commit()
@@ -127,7 +125,7 @@ def _apply_order_transition(
     else:
         conditions.append(Orders.branch_id == branch_id)
     if timestamp_field is not None:
-        values[timestamp_field] = datetime.utcnow()
+        values[timestamp_field] = func.now()
 
     changed = (
         db.query(Orders)
