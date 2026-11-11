@@ -5,6 +5,7 @@ each error into an HTTP response, so business logic never depends on FastAPI.
 """
 
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -42,5 +43,12 @@ async def _handle_domain_error(_: Request, error: DomainError) -> JSONResponse:
     return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
 
 
+async def _handle_request_validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
+    # The default handler echoes each rejected input, which fails to serialise for NaN/inf.
+    detail = [{"type": e["type"], "loc": e["loc"], "msg": e["msg"]} for e in error.errors()]
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": detail})
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DomainError, _handle_domain_error)
+    app.add_exception_handler(RequestValidationError, _handle_request_validation_error)

@@ -1,10 +1,13 @@
 """Request-scoped FastAPI dependencies: database session, authentication and authorization."""
 
+import inspect
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, TypeVar
 
 import jwt
 from fastapi import Depends, HTTPException, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.enums import UserRole
@@ -12,8 +15,34 @@ from app.core.security import decode_access_token, oauth2_scheme
 from app.db.session import get_db
 from app.models.LaundryProfiles import LaundryProfile
 from app.models.Users import User
+from app.schemas.pagination import Pagination
 
 Database = Annotated[Session, Depends(get_db)]
+
+QueryModel = TypeVar("QueryModel", bound=BaseModel)
+
+
+def query_model(model: type[QueryModel]) -> Callable[..., QueryModel]:
+    """Read query parameters into ``model``, reporting constraint violations as 422.
+
+    FastAPI 0.103 exposes a model's fields as query parameters when it is used as a
+    dependency, but its Field constraints only run when the model is built, where a
+    ValidationError would otherwise surface as a 500.
+    """
+
+    def dependency(**params) -> QueryModel:
+        try:
+            return model(**params)
+        except ValidationError as error:
+            raise RequestValidationError(
+                [{**e, "loc": ("query", *e["loc"])} for e in error.errors(include_url=False)]
+            ) from error
+
+    dependency.__signature__ = inspect.signature(model)
+    return dependency
+
+
+Page = Annotated[Pagination, Depends(query_model(Pagination))]
 
 _INVALID_CREDENTIALS = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
