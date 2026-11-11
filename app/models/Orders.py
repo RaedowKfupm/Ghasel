@@ -5,14 +5,13 @@ from app.core.enums import OrderStatus
 from app.db.base import Base
 from app.db.spatial import GeographyPoint, generated_point
 
+ORDER_STATUS_SQL = ", ".join(f"'{status.name}'" for status in OrderStatus)
+
 
 class Orders(Base):
     __tablename__ = "orders"
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('PENDING', 'ACCEPTED', 'DELIVERING', 'COMPLETED', 'CANCELLED')",
-            name="ck_orders_status",
-        ),
+        CheckConstraint(f"status IN ({ORDER_STATUS_SQL})", name="ck_orders_status"),
         CheckConstraint(
             "branch_id IS NOT NULL OR status IN ('PENDING', 'CANCELLED')",
             name="ck_orders_branch_assigned",
@@ -54,3 +53,34 @@ class Orders(Base):
 
     customer = relationship("User", back_populates="orders", uselist=False)
     branch = relationship("LaundryBranch", back_populates="orders", uselist=False)
+    events = relationship(
+        "OrderStatusEvent",
+        back_populates="order",
+        order_by="(OrderStatusEvent.created_at, OrderStatusEvent.id)",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class OrderStatusEvent(Base):
+    """One row per status an order entered: an append-only tracking history."""
+
+    __tablename__ = "order_status_events"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({ORDER_STATUS_SQL})", name="ck_order_status_events_status"),
+        Index("ix_order_status_events_order", "order_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    status = Column(Enum(OrderStatus, native_enum=False, length=None), nullable=False)
+    # NULL for system-reconstructed history or if the acting user was deleted.
+    actor_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    order = relationship("Orders", back_populates="events")
+    actor = relationship("User")
+
+    @property
+    def actor_role(self):
+        return self.actor.role if self.actor is not None else None

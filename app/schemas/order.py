@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
-from app.core.enums import OrderStatus
+from app.core.enums import OrderStatus, UserRole
+from app.core.order_lifecycle import next_progress_status
 from app.schemas.geo import Latitude, Longitude
 
 OrderDetails = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=1000)]
@@ -49,6 +50,24 @@ class OrderResponse(BaseModel):
     cancelled_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def next_status(self) -> OrderStatus | None:
+        """The next working stage the assigned branch can move this order to."""
+        return next_progress_status(self.status)
+
+
+class StatusEventResponse(BaseModel):
+    status: OrderStatus
+    created_at: datetime
+    actor_role: UserRole | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OrderDetailResponse(OrderResponse):
+    history: list[StatusEventResponse] = Field(validation_alias="events")
 
 
 class AvailableOrderResponse(OrderResponse):

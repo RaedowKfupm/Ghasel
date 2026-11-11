@@ -4,6 +4,9 @@ Every status change is a single conditional ``UPDATE ... WHERE status = <expecte
 PostgreSQL row locking serialises concurrent updates to the same row and re-checks
 the WHERE clause after the first writer commits, so only one of several racing
 requests can succeed; the others match zero rows and receive 409 Conflict.
+
+The matching ``order_status_events`` row is inserted in the same transaction, so
+the tracking history can never disagree with the order's current status.
 """
 
 from sqlalchemy import Float, Select, or_, select, update
@@ -14,11 +17,11 @@ from app.core.enums import OrderStatus, UserRole
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.db.spatial import METRES_PER_KM
 from app.models.LaundryProfiles import LaundryBranch
-from app.models.Orders import Orders
+from app.models.Orders import OrderStatusEvent, Orders
 from app.models.Users import User
 from app.schemas.order import AvailableOrderResponse, OrderCreate
 from app.schemas.pagination import Pagination
-from app.services.order_lifecycle import (
+from app.core.order_lifecycle import (
     ACTION_ONLY_TARGETS,
     InvalidTransitionError,
     OrderActor,
@@ -114,7 +117,12 @@ def list_available_orders(pagination: Pagination, manager: User, db: Session) ->
 
 
 def get_order(order_id: int, user: User, db: Session) -> Orders:
-    query = _order_query().where(Orders.id == order_id)
+    """A single order the user may see, including its status history."""
+    query = (
+        _order_query()
+        .options(selectinload(Orders.events).selectinload(OrderStatusEvent.actor))
+        .where(Orders.id == order_id)
+    )
     visibility = _visible_to(user)
     if visibility is not None:
         query = query.where(visibility)
@@ -132,6 +140,7 @@ def create_order(order_data: OrderCreate, customer: User, db: Session) -> Orders
         raise NotFoundError("Branch not found")
 
     order = Orders(customer_id=customer.id, status=OrderStatus.PENDING, **order_data.model_dump())
+    order.events.append(OrderStatusEvent(status=OrderStatus.PENDING, actor_id=customer.id))
     db.add(order)
     db.commit()
     return get_order(order.id, customer, db)
@@ -140,12 +149,13 @@ def create_order(order_data: OrderCreate, customer: User, db: Session) -> Orders
 def _apply_transition(
     order: Orders,
     transition: Transition,
+    actor: User,
     db: Session,
     *,
     guards: tuple[ColumnElement[bool], ...] = (),
     values: dict | None = None,
 ) -> None:
-    """Compare-and-set the order's status; fails if anyone changed it first."""
+    """Compare-and-set the order's status and record it; fails if anyone changed it first."""
     changes = {"status": transition.target, **(values or {})}
     if transition.timestamp_field:
         changes[transition.timestamp_field] = func.now()
@@ -159,6 +169,7 @@ def _apply_transition(
     if updated is None:
         db.rollback()
         raise ConflictError("This order was just updated by someone else; reload and try again")
+    db.add(OrderStatusEvent(order_id=order.id, status=transition.target, actor_id=actor.id))
     db.commit()
 
 
@@ -172,6 +183,7 @@ def accept_order(order_id: int, manager: User, db: Session) -> Orders:
     _apply_transition(
         order,
         transition,
+        manager,
         db,
         # Re-checked inside the UPDATE so a concurrent acceptance cannot also succeed.
         guards=(_available_to_branch(branch_id),),
@@ -192,7 +204,7 @@ def cancel_order(order_id: int, user: User, db: Session) -> Orders:
         raise PermissionDeniedError("Insufficient permissions")
 
     transition = get_transition(order.status, OrderStatus.CANCELLED, actor)
-    _apply_transition(order, transition, db, guards=(guard,))
+    _apply_transition(order, transition, user, db, guards=(guard,))
     return get_order(order_id, user, db)
 
 
@@ -207,5 +219,5 @@ def advance_order_status(order_id: int, target: OrderStatus, manager: User, db: 
         raise NotFoundError(_ORDER_NOT_FOUND)
 
     transition = get_transition(order.status, target, OrderActor.BRANCH)
-    _apply_transition(order, transition, db, guards=(Orders.branch_id == branch_id,))
+    _apply_transition(order, transition, manager, db, guards=(Orders.branch_id == branch_id,))
     return get_order(order_id, manager, db)
